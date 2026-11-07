@@ -141,6 +141,7 @@ impl ExtensionWorker {
         })
     }
 
+    #[allow(dead_code)] // Reserved for extension lifecycle event dispatch.
     pub fn emit(&mut self, event: &str, payload: &Value) -> Result<()> {
         let request = Request {
             name: None,
@@ -155,6 +156,7 @@ impl ExtensionWorker {
         Ok(())
     }
 
+    #[allow(dead_code)] // Reserved for explicit graceful worker shutdown.
     pub fn shutdown(&mut self) -> Result<()> {
         if let Some(mut process) = self.process.take() {
             let request = Request {
