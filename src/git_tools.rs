@@ -37,7 +37,7 @@ fn verify_repository(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn path_argument<'a>(args: &'a Value) -> Result<Option<&'a str>> {
+fn path_argument(args: &Value) -> Result<Option<&str>> {
     let Some(value) = args.get("path") else {
         return Ok(None);
     };
