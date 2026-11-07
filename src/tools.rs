@@ -146,3 +146,61 @@ pub(super) fn execute(
         _ => bail!("unknown tool: {name}"),
     }
 }
+
+
+#[cfg(test)]
+mod tool_regressions {
+    use super::*;
+
+    #[test]
+    fn rejects_missing_arguments_and_unknown_tools() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["read_file", "grep", "write_file", "edit_file"] {
+            assert!(execute(dir.path(), true, name, &json!({})).is_err());
+        }
+        assert!(execute(dir.path(), true, "missing_tool", &json!({})).is_err());
+    }
+
+    #[test]
+    fn read_rejects_invalid_utf8_and_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("binary"), [0xff, 0xfe]).unwrap();
+        assert!(execute(dir.path(), false, "read_file", &json!({"path":"binary"})).is_err());
+        assert!(execute(dir.path(), false, "read_file", &json!({"path":"missing"})).is_err());
+    }
+
+    #[test]
+    fn edit_digest_conflict_and_type_errors_do_not_change_file() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.txt"), "old").unwrap();
+        let args = json!({"path":"a.txt","old":"old","new":"new",
+            "expected_sha256":"0000000000000000000000000000000000000000000000000000000000000000"});
+        assert!(execute(dir.path(), true, "edit_file", &args).is_err());
+        assert!(execute(dir.path(), true, "edit_file", &json!({
+            "path":"a.txt","old":"old","new":"new","expected_sha256":42
+        })).is_err());
+        assert_eq!(fs::read_to_string(dir.path().join("a.txt")).unwrap(), "old");
+    }
+
+    #[test]
+    fn write_and_edit_permission_gate_precedes_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.txt");
+        fs::write(&path, "old").unwrap();
+        assert!(execute(dir.path(), false, "write_file", &json!({
+            "path":"a.txt","content":"new"
+        })).is_err());
+        assert!(execute(dir.path(), false, "edit_file", &json!({
+            "path":"a.txt","old":"old","new":"new"
+        })).is_err());
+        assert_eq!(fs::read_to_string(path).unwrap(), "old");
+    }
+
+    #[test]
+    fn confined_rejects_empty_parent_and_missing_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(confined(dir.path(), "", false).is_err());
+        assert!(confined(dir.path(), "../escape", true).is_err());
+        assert!(confined(dir.path(), "absent/child", true).is_err());
+    }
+}

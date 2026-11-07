@@ -61,3 +61,54 @@ pub(super) fn persist(args: &Args, db: &mut Option<Connection>, messages: &[Valu
     }
     Ok(())
 }
+
+
+#[cfg(test)]
+mod persistence_regressions {
+    use super::*;
+
+    #[test]
+    fn sqlite_preserves_message_order_and_json_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = open_store(&dir.path().join("nested").join("state.db")).unwrap();
+        let messages = vec![
+            json!({"role":"user","content":"first"}),
+            json!({"role":"assistant","content":"second","tool_calls":[{"id":"1"}]}),
+            json!({"role":"tool","content":null})
+        ];
+        save_sqlite(&mut db, "session", &messages).unwrap();
+        assert_eq!(load_sqlite(&db, "session").unwrap(), messages);
+        assert!(load_sqlite(&db, "unknown").unwrap().is_empty());
+    }
+
+    #[test]
+    fn replacing_session_with_empty_messages_clears_old_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = open_store(&dir.path().join("state.db")).unwrap();
+        save_sqlite(&mut db, "one", &[json!({"content":"old"})]).unwrap();
+        save_sqlite(&mut db, "two", &[json!({"content":"keep"})]).unwrap();
+        save_sqlite(&mut db, "one", &[]).unwrap();
+        assert!(load_sqlite(&db, "one").unwrap().is_empty());
+        assert_eq!(load_sqlite(&db, "two").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn session_json_creates_parent_and_replaces_existing_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("history.json");
+        save_session(&path, &[json!({"role":"user","content":"before"})]).unwrap();
+        save_session(&path, &[json!({"role":"user","content":"after"})]).unwrap();
+        let actual: Vec<Value> = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(actual, vec![json!({"role":"user","content":"after"})]);
+    }
+
+    #[test]
+    fn sqlite_foreign_keys_and_wal_are_enabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = open_store(&dir.path().join("state.db")).unwrap();
+        let fk: i64 = db.query_row("PRAGMA foreign_keys", [], |row| row.get(0)).unwrap();
+        let mode: String = db.query_row("PRAGMA journal_mode", [], |row| row.get(0)).unwrap();
+        assert_eq!(fk, 1);
+        assert_eq!(mode.to_lowercase(), "wal");
+    }
+}

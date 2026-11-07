@@ -78,3 +78,38 @@ mod tests {
         );
     }
 }
+
+
+#[cfg(test)]
+mod boundary_regressions {
+    use super::*;
+
+    #[test]
+    fn rejects_invalid_utf8_and_empty_search() {
+        assert!(replace_once(&[0xff, 0xfe], "x", "y", None).is_err());
+        assert!(replace_once(b"abc", "", "x", None).is_err());
+    }
+
+    #[test]
+    fn accepts_case_insensitive_sha256_and_rejects_nonhex() {
+        let checksum = digest(b"abc").to_uppercase();
+        assert_eq!(replace_once(b"abc", "b", "B", Some(&checksum)).unwrap(), b"aBc");
+        assert!(replace_once(b"abc", "a", "b", Some(&"z".repeat(64))).is_err());
+    }
+
+    #[test]
+    fn refuses_expansion_beyond_limit_and_missing_match() {
+        let original = vec![b'a'; MAX_EDIT_BYTES];
+        assert!(replace_once(&original, "a", "bb", None).is_err());
+        assert!(replace_once(b"abc", "missing", "x", None).is_err());
+    }
+
+    #[test]
+    fn accepts_exact_limit_without_modifying_other_bytes() {
+        let original = format!("x{}", "a".repeat(MAX_EDIT_BYTES - 1));
+        let result = replace_once(original.as_bytes(), "x", "y", None).unwrap();
+        assert_eq!(result.len(), MAX_EDIT_BYTES);
+        assert_eq!(result[0], b'y');
+        assert_eq!(&result[1..], &original.as_bytes()[1..]);
+    }
+}

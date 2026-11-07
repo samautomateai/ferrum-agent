@@ -306,3 +306,56 @@ mod tests {
         assert_eq!(decoded.error.as_deref(), Some("bad"));
     }
 }
+
+
+#[cfg(test)]
+mod frame_regressions {
+    use super::*;
+    use std::io::{BufReader, Cursor};
+
+    #[test]
+    fn reads_consecutive_frames_without_consuming_next_frame() {
+        let input = Cursor::new(b"{\"a\":1}\n{\"b\":2}\n".to_vec());
+        let mut reader = BufReader::with_capacity(3, input);
+        assert_eq!(read_frame(&mut reader).unwrap().unwrap(), b"{\"a\":1}\n");
+        assert_eq!(read_frame(&mut reader).unwrap().unwrap(), b"{\"b\":2}\n");
+        assert!(read_frame(&mut reader).unwrap().is_none());
+    }
+
+    #[test]
+    fn empty_input_and_truncated_frames_are_distinct() {
+        let mut empty = Cursor::new(Vec::<u8>::new());
+        assert!(read_frame(&mut empty).unwrap().is_none());
+        let mut partial = BufReader::with_capacity(2, Cursor::new(b"partial".to_vec()));
+        assert!(read_frame(&mut partial).is_err());
+    }
+
+    #[test]
+    fn frame_size_boundary_is_enforced() {
+        let mut valid = Cursor::new(vec![b'x'; MAX_PROTOCOL_BYTES]);
+        assert!(read_frame(&mut valid).is_err());
+        let mut oversized = vec![b'x'; MAX_PROTOCOL_BYTES + 1];
+        oversized.push(b'\n');
+        assert!(read_frame(&mut Cursor::new(oversized)).is_err());
+    }
+
+    #[test]
+    fn request_defaults_preserve_backward_compatibility() {
+        let request: Request = serde_json::from_value(serde_json::json!({
+            "name":null,"arguments":null
+        })).unwrap();
+        assert!(request.event.is_none());
+        assert!(!request.shutdown);
+        let encoded = serde_json::to_value(&request).unwrap();
+        assert_eq!(encoded["shutdown"], false);
+    }
+
+    #[test]
+    fn missing_extension_and_zero_timeout_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(ExtensionWorker::load(dir.path(), Duration::ZERO).is_err());
+        assert!(ExtensionWorker::load(
+            &dir.path().join("absent.js"), Duration::from_millis(100)
+        ).is_err());
+    }
+}

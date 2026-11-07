@@ -100,3 +100,48 @@ mod tests {
         assert!(grep(dir.path(), "needle|xxx").unwrap().is_empty());
     }
 }
+
+
+#[cfg(test)]
+mod search_regressions {
+    use super::*;
+
+    #[test]
+    fn empty_matches_and_invalid_root() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("file.txt"), "hello\n").unwrap();
+        assert!(grep(dir.path(), "missing").unwrap().is_empty());
+        assert!(grep(&dir.path().join("missing"), "hello").is_err());
+    }
+
+    #[test]
+    fn line_snippets_are_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("long.txt"), format!("key{}\n", "x".repeat(500))).unwrap();
+        let result = grep(dir.path(), "key").unwrap();
+        let snippet = result.splitn(3, ':').nth(2).unwrap();
+        assert_eq!(snippet.trim_end().chars().count(), 240);
+    }
+
+    #[test]
+    fn respects_gitignore_and_returns_sorted_results() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(".gitignore"), "ignored.txt\n").unwrap();
+        fs::write(dir.path().join("ignored.txt"), "needle\n").unwrap();
+        fs::write(dir.path().join("visible.txt"), "needle\n").unwrap();
+        let result = grep(dir.path(), "needle").unwrap();
+        assert!(result.contains("visible.txt:1:needle"));
+        assert!(!result.contains("ignored.txt:"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_outside_workspace_are_not_searched() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("secret.txt"), "needle\n").unwrap();
+        symlink(outside.path().join("secret.txt"), root.path().join("link.txt")).unwrap();
+        assert!(!grep(root.path(), "needle").unwrap().contains("link.txt"));
+    }
+}
