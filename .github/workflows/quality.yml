@@ -15,9 +15,11 @@ jobs:
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: taiki-e/install-action@cargo-audit
       - uses: taiki-e/install-action@cargo-deny
-      - uses: taiki-e/install-action@actionlint
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
       - uses: taiki-e/install-action@zizmor
-      - uses: taiki-e/install-action@task
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@latest
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
