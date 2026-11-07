@@ -1,4 +1,5 @@
 use super::*;
+use crate::tools::atomic_replace;
 pub(super) fn save_session(path: &Path, messages: &[Value]) -> Result<()> {
     let parent = path
         .parent()
