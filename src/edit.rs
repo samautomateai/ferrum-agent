@@ -9,21 +9,36 @@ pub(crate) fn digest(bytes: &[u8]) -> String {
 }
 
 pub(crate) fn replace_once(
-    original: &[u8], old: &str, new: &str, expected_sha256: Option<&str>,
+    original: &[u8],
+    old: &str,
+    new: &str,
+    expected_sha256: Option<&str>,
 ) -> Result<Vec<u8>> {
-    if original.len() > MAX_EDIT_BYTES { bail!("edit source exceeds 1 MiB limit"); }
-    if old.is_empty() { bail!("old text cannot be empty"); }
+    if original.len() > MAX_EDIT_BYTES {
+        bail!("edit source exceeds 1 MiB limit");
+    }
+    if old.is_empty() {
+        bail!("old text cannot be empty");
+    }
     if let Some(expected) = expected_sha256 {
         if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
             bail!("expected_sha256 must be 64 hexadecimal characters");
         }
-        if !digest(original).eq_ignore_ascii_case(expected) { bail!("edit conflict: content changed"); }
+        if !digest(original).eq_ignore_ascii_case(expected) {
+            bail!("edit conflict: content changed");
+        }
     }
     let text = std::str::from_utf8(original)?;
-    if text.matches(old).count() != 1 { bail!("edit requires exactly one match"); }
+    if text.matches(old).count() != 1 {
+        bail!("edit requires exactly one match");
+    }
     let updated = text.replacen(old, new, 1).into_bytes();
-    if updated.len() > MAX_EDIT_BYTES { bail!("edited file exceeds 1 MiB limit"); }
-    if updated == original { bail!("edit makes no change"); }
+    if updated.len() > MAX_EDIT_BYTES {
+        bail!("edited file exceeds 1 MiB limit");
+    }
+    if updated == original {
+        bail!("edit makes no change");
+    }
     Ok(updated)
 }
 
@@ -57,6 +72,9 @@ mod tests {
 
     #[test]
     fn handles_unicode_without_normalizing() {
-        assert_eq!(replace_once("café".as_bytes(), "fé", "fe", None).unwrap(), b"cafe");
+        assert_eq!(
+            replace_once("café".as_bytes(), "fé", "fe", None).unwrap(),
+            b"cafe"
+        );
     }
 }

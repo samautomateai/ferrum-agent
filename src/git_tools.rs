@@ -7,7 +7,8 @@ const MAX_OUTPUT: usize = 64 * 1024;
 
 fn run_git(root: &Path, arguments: &[&str]) -> Result<String> {
     let output = Command::new("git")
-        .arg("-C").arg(root)
+        .arg("-C")
+        .arg(root)
         .arg("--no-pager")
         .args(arguments)
         .env("GIT_OPTIONAL_LOCKS", "0")
@@ -16,9 +17,14 @@ fn run_git(root: &Path, arguments: &[&str]) -> Result<String> {
         .context("could not launch git")?;
     if !output.status.success() {
         let message = String::from_utf8_lossy(&output.stderr);
-        bail!("git failed: {}", message.chars().take(512).collect::<String>());
+        bail!(
+            "git failed: {}",
+            message.chars().take(512).collect::<String>()
+        );
     }
-    if output.stdout.len() > MAX_OUTPUT { bail!("git output exceeds 64 KiB; narrow the request"); }
+    if output.stdout.len() > MAX_OUTPUT {
+        bail!("git output exceeds 64 KiB; narrow the request");
+    }
     String::from_utf8(output.stdout).context("git returned non-UTF-8 output")
 }
 
@@ -32,12 +38,22 @@ fn verify_repository(root: &Path) -> Result<()> {
 }
 
 fn path_argument<'a>(args: &'a Value) -> Result<Option<&'a str>> {
-    let Some(value) = args.get("path") else { return Ok(None); };
+    let Some(value) = args.get("path") else {
+        return Ok(None);
+    };
     let path = value.as_str().context("path must be a string")?;
-    if path.is_empty() || path.starts_with('-') || path.contains('\0') { bail!("invalid Git path"); }
+    if path.is_empty() || path.starts_with('-') || path.contains('\0') {
+        bail!("invalid Git path");
+    }
     let parsed = Path::new(path);
-    if parsed.is_absolute() || parsed.components().any(|component| matches!(component,
-        std::path::Component::ParentDir | std::path::Component::Prefix(_))) {
+    if parsed.is_absolute()
+        || parsed.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir | std::path::Component::Prefix(_)
+            )
+        })
+    {
         bail!("Git path must be workspace-relative without parent traversal");
     }
     Ok(Some(path))
@@ -58,7 +74,10 @@ pub(crate) fn definitions() -> Vec<Value> {
 pub(crate) fn execute(root: &Path, name: &str, args: &Value) -> Result<String> {
     verify_repository(root)?;
     match name {
-        "git_status" => run_git(root, &["status", "--porcelain=v1", "--untracked-files=normal"]),
+        "git_status" => run_git(
+            root,
+            &["status", "--porcelain=v1", "--untracked-files=normal"],
+        ),
         "git_diff" => {
             let staged = match args.get("staged") {
                 None => false,
@@ -66,8 +85,12 @@ pub(crate) fn execute(root: &Path, name: &str, args: &Value) -> Result<String> {
             };
             let path = path_argument(args)?;
             let mut argv = vec!["diff", "--no-ext-diff", "--no-textconv", "--no-color"];
-            if staged { argv.push("--cached"); }
-            if let Some(path) = path { argv.extend(["--", path]); }
+            if staged {
+                argv.push("--cached");
+            }
+            if let Some(path) = path {
+                argv.extend(["--", path]);
+            }
             run_git(root, &argv)
         }
         _ => bail!("unknown Git tool: {name}"),
@@ -80,7 +103,13 @@ mod tests {
     use std::process::Command;
 
     fn git(root: &Path, args: &[&str]) {
-        assert!(Command::new("git").arg("-C").arg(root).args(args).status().unwrap().success());
+        assert!(Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .status()
+            .unwrap()
+            .success());
     }
 
     #[test]
@@ -94,9 +123,16 @@ mod tests {
         git(root, &["add", "a.txt"]);
         git(root, &["commit", "-qm", "initial"]);
         std::fs::write(root.join("a.txt"), "second\n").unwrap();
-        assert!(execute(root, "git_status", &json!({})).unwrap().contains("a.txt"));
-        assert!(execute(root, "git_diff", &json!({"path":"a.txt"})).unwrap().contains("+second"));
-        assert_eq!(execute(root, "git_diff", &json!({"staged":true})).unwrap(), "");
+        assert!(execute(root, "git_status", &json!({}))
+            .unwrap()
+            .contains("a.txt"));
+        assert!(execute(root, "git_diff", &json!({"path":"a.txt"}))
+            .unwrap()
+            .contains("+second"));
+        assert_eq!(
+            execute(root, "git_diff", &json!({"staged":true})).unwrap(),
+            ""
+        );
     }
 
     #[test]

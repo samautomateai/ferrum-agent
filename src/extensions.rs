@@ -107,14 +107,19 @@ impl TrustedExtensionHost {
             bail!("extension source exceeds 256 KiB limit");
         }
         let mut context = JsContext::default();
-        context.eval(Source::from_bytes(BOOTSTRAP))
+        context
+            .eval(Source::from_bytes(BOOTSTRAP))
             .map_err(|e| anyhow::anyhow!("bootstrap failed: {e}"))?;
-        context.eval(Source::from_bytes(source))
+        context
+            .eval(Source::from_bytes(source))
             .map_err(|e| anyhow::anyhow!("extension failed: {e}"))?;
-        let value = context.eval(Source::from_bytes(
-            "JSON.stringify(globalThis.__piRsRegistry)",
-        )).map_err(|e| anyhow::anyhow!("registry failed: {e}"))?;
-        let json = value.to_string(&mut context)
+        let value = context
+            .eval(Source::from_bytes(
+                "JSON.stringify(globalThis.__piRsRegistry)",
+            ))
+            .map_err(|e| anyhow::anyhow!("registry failed: {e}"))?;
+        let json = value
+            .to_string(&mut context)
             .map_err(|e| anyhow::anyhow!("registry conversion failed: {e}"))?
             .to_std_string_escaped();
         let manifest = serde_json::from_str(&json).context("invalid extension registry")?;
@@ -132,7 +137,12 @@ impl TrustedExtensionHost {
     /// Invoke a handler, including Promises resolved by Boa's microtask queue.
     /// This does not provide timers, external I/O, preemption, or cancellation.
     pub fn invoke(&mut self, name: &str, arguments: &Value) -> Result<Value> {
-        if !self.manifest.tools.iter().any(|registered| registered == name) {
+        if !self
+            .manifest
+            .tools
+            .iter()
+            .any(|registered| registered == name)
+        {
             bail!("unregistered extension tool: {name}");
         }
         let arguments_json = serde_json::to_string(arguments)?;
@@ -141,24 +151,30 @@ impl TrustedExtensionHost {
         }
         let name_literal = serde_json::to_string(name)?;
         let arguments_literal = serde_json::to_string(&arguments_json)?;
-        let expression = format!(
-            "__piRsCall({name_literal}, JSON.parse({arguments_literal}))"
-        );
-        self.context.eval(Source::from_bytes(&expression))
+        let expression = format!("__piRsCall({name_literal}, JSON.parse({arguments_literal}))");
+        self.context
+            .eval(Source::from_bytes(&expression))
             .map_err(|e| anyhow::anyhow!("extension tool {name} failed: {e}"))?;
         self.settle(name)
-
     }
 
     pub fn emit(&mut self, event: &str, payload: &Value) -> Result<()> {
-        if !self.manifest.events.iter().any(|registered| registered == event) {
+        if !self
+            .manifest
+            .events
+            .iter()
+            .any(|registered| registered == event)
+        {
             return Ok(());
         }
         let event_literal = serde_json::to_string(event)?;
         let payload_literal = serde_json::to_string(payload)?;
-        if payload_literal.len() > MAX_ARGUMENT_BYTES { bail!("event payload too large"); }
+        if payload_literal.len() > MAX_ARGUMENT_BYTES {
+            bail!("event payload too large");
+        }
         let expression = format!("__piRsEmit({event_literal}, {payload_literal})");
-        self.context.eval(Source::from_bytes(&expression))
+        self.context
+            .eval(Source::from_bytes(&expression))
             .map_err(|e| anyhow::anyhow!("event dispatch failed: {e}"))?;
         self.settle(event).map(|_| ())
     }
@@ -166,19 +182,23 @@ impl TrustedExtensionHost {
     fn settle(&mut self, name: &str) -> Result<Value> {
         for _ in 0..MAX_PROMISE_PUMPS {
             self.context.run_jobs();
-            let status = self.context.eval(Source::from_bytes(
-                "globalThis.__piRsInvocation.status"
-            )).map_err(|e| anyhow::anyhow!("promise status failed: {e}"))?;
-            let status = status.to_string(&mut self.context)
+            let status = self
+                .context
+                .eval(Source::from_bytes("globalThis.__piRsInvocation.status"))
+                .map_err(|e| anyhow::anyhow!("promise status failed: {e}"))?;
+            let status = status
+                .to_string(&mut self.context)
                 .map_err(|e| anyhow::anyhow!("status conversion failed: {e}"))?
                 .to_std_string_escaped();
             if status == "pending" {
                 continue;
             }
-            let value = self.context.eval(Source::from_bytes(
-                "globalThis.__piRsInvocation.value"
-            )).map_err(|e| anyhow::anyhow!("promise result failed: {e}"))?;
-            let result = value.to_string(&mut self.context)
+            let value = self
+                .context
+                .eval(Source::from_bytes("globalThis.__piRsInvocation.value"))
+                .map_err(|e| anyhow::anyhow!("promise result failed: {e}"))?;
+            let result = value
+                .to_string(&mut self.context)
                 .map_err(|e| anyhow::anyhow!("result conversion failed: {e}"))?
                 .to_std_string_escaped();
             if result.len() > MAX_RESULT_BYTES {
@@ -191,7 +211,6 @@ impl TrustedExtensionHost {
         }
         bail!("extension tool {name} promise did not settle; external async I/O is unsupported")
     }
-
 }
 
 pub fn inspect_trusted_extension(source: &str) -> Result<ExtensionManifest> {
@@ -237,24 +256,30 @@ mod tests {
 
     #[test]
     fn event_rejection_propagates() {
-        let mut host = TrustedExtensionHost::load(
-            "pi.on('ready', () => { throw Error('bad event'); });"
-        ).unwrap();
+        let mut host =
+            TrustedExtensionHost::load("pi.on('ready', () => { throw Error('bad event'); });")
+                .unwrap();
         assert!(host.emit("ready", &json!({})).is_err());
     }
 
     #[test]
     fn invokes_registered_handler() {
         let mut host = TrustedExtensionHost::load(SAMPLE).unwrap();
-        assert_eq!(host.invoke("review", &json!({"path":"src/main.rs"})).unwrap(),
-            json!({"ok":true,"path":"src/main.rs"}));
+        assert_eq!(
+            host.invoke("review", &json!({"path":"src/main.rs"}))
+                .unwrap(),
+            json!({"ok":true,"path":"src/main.rs"})
+        );
     }
 
     #[test]
     fn escapes_argument_strings() {
         let mut host = TrustedExtensionHost::load(SAMPLE).unwrap();
         let input = "\"); throw Error('injected'); // \n💻";
-        assert_eq!(host.invoke("review", &json!({"path":input})).unwrap()["path"], input);
+        assert_eq!(
+            host.invoke("review", &json!({"path":input})).unwrap()["path"],
+            input
+        );
     }
 
     #[test]
@@ -267,7 +292,8 @@ mod tests {
     fn rejects_duplicate_registration() {
         assert!(TrustedExtensionHost::load(
             "pi.registerTool({name:'x',execute:()=>1});pi.registerTool({name:'x',execute:()=>2});"
-        ).is_err());
+        )
+        .is_err());
     }
 
     #[test]
@@ -293,74 +319,94 @@ mod tests {
     #[test]
     fn rejects_oversized_arguments() {
         let mut host = TrustedExtensionHost::load(SAMPLE).unwrap();
-        assert!(host.invoke("review", &json!({"path":"x".repeat(MAX_ARGUMENT_BYTES)})).is_err());
+        assert!(host
+            .invoke("review", &json!({"path":"x".repeat(MAX_ARGUMENT_BYTES)}))
+            .is_err());
     }
 
     #[test]
     fn rejects_undefined_result() {
-        let mut host = TrustedExtensionHost::load(
-            "pi.registerTool({name:'void',execute:()=>undefined});"
-        ).unwrap();
+        let mut host =
+            TrustedExtensionHost::load("pi.registerTool({name:'void',execute:()=>undefined});")
+                .unwrap();
         assert!(host.invoke("void", &json!({})).is_err());
     }
 
     #[test]
     fn rejects_thrown_errors() {
         let mut host = TrustedExtensionHost::load(
-            "pi.registerTool({name:'bad',execute:()=>{throw Error('failed')}});"
-        ).unwrap();
+            "pi.registerTool({name:'bad',execute:()=>{throw Error('failed')}});",
+        )
+        .unwrap();
         assert!(host.invoke("bad", &json!({})).is_err());
     }
 
     #[test]
     fn advertises_schema_and_invokes() {
-        let mut host = TrustedExtensionHost::load(r#"pi.registerTool({
+        let mut host = TrustedExtensionHost::load(
+            r#"pi.registerTool({
           name:'review',description:'Review a path',
           parameters:{type:'object',properties:{path:{type:'string'}},required:['path']},
           execute:(args)=>({reviewed:args.path})
-        });"#).unwrap();
+        });"#,
+        )
+        .unwrap();
         assert_eq!(host.definitions()[0]["function"]["name"], "review");
-        assert_eq!(host.definitions()[0]["function"]["parameters"]["required"][0], "path");
-        assert_eq!(host.invoke("review", &json!({"path":"src/lib.rs"})).unwrap(),
-            json!({"reviewed":"src/lib.rs"}));
+        assert_eq!(
+            host.definitions()[0]["function"]["parameters"]["required"][0],
+            "path"
+        );
+        assert_eq!(
+            host.invoke("review", &json!({"path":"src/lib.rs"}))
+                .unwrap(),
+            json!({"reviewed":"src/lib.rs"})
+        );
     }
 
     #[test]
     fn rejects_bad_schema() {
         assert!(TrustedExtensionHost::load(
             "pi.registerTool({name:'bad',parameters:42,execute:()=>1});"
-        ).is_err());
+        )
+        .is_err());
     }
 
     #[test]
     fn resolves_async_handler() {
         let mut host = TrustedExtensionHost::load(
-            "pi.registerTool({name:'async',execute:async (args)=>({value:args.x+1})});"
-        ).unwrap();
-        assert_eq!(host.invoke("async", &json!({"x": 4})).unwrap(), json!({"value":5}));
+            "pi.registerTool({name:'async',execute:async (args)=>({value:args.x+1})});",
+        )
+        .unwrap();
+        assert_eq!(
+            host.invoke("async", &json!({"x": 4})).unwrap(),
+            json!({"value":5})
+        );
     }
 
     #[test]
     fn reports_rejected_promise() {
         let mut host = TrustedExtensionHost::load(
-            "pi.registerTool({name:'reject',execute:async()=>{throw Error('nope')}});"
-        ).unwrap();
+            "pi.registerTool({name:'reject',execute:async()=>{throw Error('nope')}});",
+        )
+        .unwrap();
         assert!(host.invoke("reject", &json!({})).is_err());
     }
 
     #[test]
     fn rejects_never_settled_promise() {
         let mut host = TrustedExtensionHost::load(
-            "pi.registerTool({name:'wait',execute:()=>new Promise(()=>{})});"
-        ).unwrap();
+            "pi.registerTool({name:'wait',execute:()=>new Promise(()=>{})});",
+        )
+        .unwrap();
         assert!(host.invoke("wait", &json!({})).is_err());
     }
 
     #[test]
     fn resolves_microtask_chain() {
         let mut host = TrustedExtensionHost::load(
-            "pi.registerTool({name:'chain',execute:()=>Promise.resolve(2).then(x=>x*3)});"
-        ).unwrap();
+            "pi.registerTool({name:'chain',execute:()=>Promise.resolve(2).then(x=>x*3)});",
+        )
+        .unwrap();
         assert_eq!(host.invoke("chain", &json!({})).unwrap(), json!(6));
     }
 
