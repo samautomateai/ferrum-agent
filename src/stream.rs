@@ -149,3 +149,63 @@ pub(super) fn request_message(
     }
     Ok(message)
 }
+
+
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+
+    fn empty_message() -> Value {
+        json!({"role":"assistant","content":"","tool_calls":[]})
+    }
+
+    #[test]
+    fn streamed_text_is_concatenated_in_order() {
+        let mut message = empty_message();
+        merge_delta(&mut message, &json!({"content":"hello"})).unwrap();
+        merge_delta(&mut message, &json!({"content":" world"})).unwrap();
+        assert_eq!(message["content"], "hello world");
+    }
+
+    #[test]
+    fn fragmented_tool_calls_merge_by_index() {
+        let mut message = empty_message();
+        merge_delta(&mut message, &json!({"tool_calls":[
+            {"index":1,"id":"call_","function":{"name":"read_","arguments":"{\"path\":"}}
+        ]})).unwrap();
+        merge_delta(&mut message, &json!({"tool_calls":[
+            {"index":1,"id":"two","function":{"name":"file","arguments":"\"a\"}"}}
+        ]})).unwrap();
+        assert_eq!(message["tool_calls"][1]["id"], "call_two");
+        assert_eq!(message["tool_calls"][1]["function"]["name"], "read_file");
+        assert_eq!(message["tool_calls"][1]["function"]["arguments"], "{\"path\":\"a\"}");
+    }
+
+    #[test]
+    fn missing_index_and_out_of_range_are_rejected() {
+        let mut message = empty_message();
+        assert!(merge_delta(&mut message, &json!({"tool_calls":[{"id":"x"}]})).is_err());
+        assert!(merge_delta(&mut message, &json!({"tool_calls":[{"index":129}]})).is_err());
+    }
+
+    #[test]
+    fn sse_done_error_and_content_are_handled() {
+        let mut message = empty_message();
+        assert!(!parse_sse_event(
+            &mut message,
+            r#"{"choices":[{"delta":{"content":"ok"}}]}"#
+        ).unwrap());
+        assert_eq!(message["content"], "ok");
+        assert!(parse_sse_event(&mut message, "[DONE]").unwrap());
+        assert!(parse_sse_event(&mut message, "not-json").is_err());
+        assert!(parse_sse_event(&mut message, r#"{"error":{"message":"bad"}}"#).is_err());
+    }
+
+    #[test]
+    fn absent_delta_does_not_change_message() {
+        let mut message = empty_message();
+        let original = message.clone();
+        assert!(!parse_sse_event(&mut message, r#"{"choices":[]}"#).unwrap());
+        assert_eq!(message, original);
+    }
+}
