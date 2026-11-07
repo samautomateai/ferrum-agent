@@ -1,0 +1,9 @@
+/target
+.env
+*.log
+
+.ferrum-session*.json
+*.json.tmp
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

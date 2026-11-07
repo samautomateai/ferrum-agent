@@ -1,0 +1,59 @@
+version: '3'
+
+tasks:
+  doctor:
+    cmds:
+      - rustc --version
+      - cargo --version
+      - cargo llvm-cov --version
+      - cargo audit --version
+      - cargo deny --version
+      - gitleaks version
+      - actionlint -version
+      - zizmor --version
+  source-limits:
+    cmds:
+      - python3 -m unittest discover -s scripts -p 'test_*.py'
+      - python3 scripts/check_quality_contract.py
+      - python3 scripts/check_source_limits.py --max-lines 600 --max-width 120
+  format:
+    cmds:
+      - cargo fmt --all -- --check
+  lint:
+    cmds:
+      - cargo clippy --locked --all-features --all-targets -- -D warnings
+  test:
+    cmds:
+      - cargo test --locked --all-features --workspace --all-targets
+  coverage:
+    cmds:
+      - cargo llvm-cov --locked --all-features --workspace --all-targets --fail-under-lines 90 --summary-only
+  dependencies:
+    cmds:
+      - cargo audit --deny warnings
+      - cargo deny --locked check advisories bans licenses sources
+  secrets:
+    cmds:
+      - gitleaks git --redact --exit-code 1 .
+  workflow-security:
+    cmds:
+      - actionlint
+      - zizmor .github/workflows/
+  build:
+    cmds:
+      - cargo build --locked --release
+  quality:
+    desc: All mandatory gates; stop at the first failure
+    cmds:
+      - task: source-limits
+      - task: format
+      - task: lint
+      - task: test
+      - task: coverage
+      - task: dependencies
+      - task: secrets
+      - task: workflow-security
+      - task: build
+  run:
+    cmds:
+      - cargo run -- {{.CLI_ARGS}}
