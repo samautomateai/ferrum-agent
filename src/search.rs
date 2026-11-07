@@ -19,6 +19,8 @@ pub(super) fn grep(root: &Path, pattern: &str) -> Result<String> {
     let mut walker = WalkBuilder::new(&canonical_root);
     walker.sort_by_file_path(|a, b| a.cmp(b));
     walker.hidden(false);
+    // Honour .gitignore in standalone workspaces without a .git directory.
+    walker.require_git(false);
     for entry in walker.build().filter_map(std::result::Result::ok) {
         if !entry.file_type().is_some_and(|kind| kind.is_file()) {
             continue;
