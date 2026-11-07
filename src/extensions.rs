@@ -130,6 +130,7 @@ impl TrustedExtensionHost {
         &self.manifest
     }
 
+    #[allow(dead_code)] // Exposed for future tool schema registration.
     pub fn definitions(&self) -> &[Value] {
         &self.manifest.definitions
     }
@@ -213,6 +214,7 @@ impl TrustedExtensionHost {
     }
 }
 
+#[cfg(test)]
 pub fn inspect_trusted_extension(source: &str) -> Result<ExtensionManifest> {
     Ok(TrustedExtensionHost::load(source)?.manifest)
 }
