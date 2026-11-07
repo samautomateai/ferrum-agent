@@ -32,7 +32,6 @@ pub(super) fn confined(root: &Path, input: &str, writing: bool) -> Result<PathBu
 }
 
 pub(super) fn atomic_replace(path: &Path, data: &[u8]) -> Result<()> {
-    use std::fs::OpenOptions;
     let parent = path.parent().context("missing parent")?;
     let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
     if let Ok(metadata) = fs::metadata(path) {
