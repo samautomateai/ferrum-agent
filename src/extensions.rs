@@ -421,7 +421,6 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod contract_regressions {
     use super::*;
@@ -445,12 +444,15 @@ mod contract_regressions {
 
     #[test]
     fn invocation_handles_json_primitives_and_unicode() {
-        let mut host = TrustedExtensionHost::load(
-            "pi.registerTool({name:'echo',execute:x=>x})"
-        ).unwrap();
+        let mut host =
+            TrustedExtensionHost::load("pi.registerTool({name:'echo',execute:x=>x})").unwrap();
         for value in [
-            json!(null), json!(false), json!(0), json!("雪 ❄"),
-            json!([1, "two"]), json!({"nested":{"x":true}})
+            json!(null),
+            json!(false),
+            json!(0),
+            json!("雪 ❄"),
+            json!([1, "two"]),
+            json!({"nested":{"x":true}}),
         ] {
             assert_eq!(host.invoke("echo", &value).unwrap(), value);
         }
@@ -458,12 +460,15 @@ mod contract_regressions {
 
     #[test]
     fn multiple_event_handlers_execute_and_share_state() {
-        let mut host = TrustedExtensionHost::load(r#"
+        let mut host = TrustedExtensionHost::load(
+            r#"
             let count = 0;
             pi.on('tick', async () => { count += 1; });
             pi.on('tick', () => { count += 2; });
             pi.registerTool({name:'count',execute:()=>count});
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         assert_eq!(host.manifest().events, ["tick"]);
         host.emit("tick", &json!({"value":1})).unwrap();
         assert_eq!(host.invoke("count", &json!({})).unwrap(), json!(3));
@@ -473,29 +478,36 @@ mod contract_regressions {
 
     #[test]
     fn rejected_event_handler_is_reported() {
-        let mut host = TrustedExtensionHost::load(
-            "pi.on('tick',async()=>{throw Error('rejected')})"
-        ).unwrap();
+        let mut host =
+            TrustedExtensionHost::load("pi.on('tick',async()=>{throw Error('rejected')})").unwrap();
         let error = host.emit("tick", &json!(null)).unwrap_err().to_string();
         assert!(error.contains("rejected"));
     }
 
     #[test]
     fn rejects_oversized_result_and_event_payload() {
-        let mut host = TrustedExtensionHost::load(r#"
+        let mut host = TrustedExtensionHost::load(
+            r#"
             pi.registerTool({name:'large',execute:()=> 'x'.repeat(1048577)});
             pi.on('event',()=>{});
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         assert!(host.invoke("large", &json!({})).is_err());
-        assert!(host.emit("event", &json!("x".repeat(MAX_ARGUMENT_BYTES))).is_err());
+        assert!(host
+            .emit("event", &json!("x".repeat(MAX_ARGUMENT_BYTES)))
+            .is_err());
     }
 
     #[test]
     fn invocation_error_does_not_poison_following_calls() {
-        let mut host = TrustedExtensionHost::load(r#"
+        let mut host = TrustedExtensionHost::load(
+            r#"
             pi.registerTool({name:'fail',execute:()=>{throw Error('bad')}});
             pi.registerTool({name:'ok',execute:()=>42});
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         assert!(host.invoke("fail", &json!({})).is_err());
         assert_eq!(host.invoke("ok", &json!({})).unwrap(), json!(42));
     }

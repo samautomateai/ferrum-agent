@@ -219,7 +219,6 @@ mod regression_tests {
     }
 }
 
-
 #[cfg(test)]
 mod http_contract_tests {
     use super::*;
@@ -238,13 +237,17 @@ mod http_contract_tests {
         );
         let handle = thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
-            socket.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
             let mut request = [0u8; 8192];
             let count = socket.read(&mut request).unwrap();
             let text = String::from_utf8_lossy(&request[..count]);
             assert!(text.starts_with("POST /chat HTTP/1.1"));
-            assert!(text.contains("Authorization: Bearer test-key")
-                || text.contains("authorization: Bearer test-key"));
+            assert!(
+                text.contains("Authorization: Bearer test-key")
+                    || text.contains("authorization: Bearer test-key")
+            );
             socket.write_all(response.as_bytes()).unwrap();
         });
         (format!("http://{address}/chat"), handle)
@@ -253,9 +256,12 @@ mod http_contract_tests {
     fn call(url: &str, stream: bool) -> Result<Value> {
         request_message(
             &reqwest::blocking::Client::new(),
-            url, "test-key", "test-model",
+            url,
+            "test-key",
+            "test-model",
             &[json!({"role":"user","content":"hello"})],
-            stream, &json!([])
+            stream,
+            &json!([]),
         )
     }
 
