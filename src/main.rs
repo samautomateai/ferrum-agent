@@ -21,7 +21,7 @@ use stream::request_message;
 use tools::{execute, tool_definitions};
 use worker::ExtensionWorker;
 
-use sessions::{load_sqlite, open_store, save_session, save_sqlite};
+use sessions::{load_sqlite, open_store, persist, save_session, save_sqlite};
 #[cfg(test)]
 use stream::{merge_delta, parse_sse_event};
 
@@ -525,10 +525,12 @@ mod acceptance_tests {
     fn mock_response(body: &'static str, content_type: &'static str) -> String {
         format!(
             concat!(
-                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\n",
-                "Content-Length: {}\r\nConnection: close\r\n\r\n{body}"
+                "HTTP/1.1 200 OK\r\nContent-Type: {}\r\n",
+                "Content-Length: {}\r\nConnection: close\r\n\r\n{}"
             ),
-            body.len()
+            content_type,
+            body.len(),
+            body
         )
     }
 
