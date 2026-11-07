@@ -218,3 +218,108 @@ mod regression_tests {
         assert_eq!(message, original);
     }
 }
+
+
+#[cfg(test)]
+mod http_contract_tests {
+    use super::*;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
+
+    fn serve(status: &str, body: &str, content_type: &str) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let handle = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+            let mut request = [0u8; 8192];
+            let count = socket.read(&mut request).unwrap();
+            let text = String::from_utf8_lossy(&request[..count]);
+            assert!(text.starts_with("POST /chat HTTP/1.1"));
+            assert!(text.contains("Authorization: Bearer test-key")
+                || text.contains("authorization: Bearer test-key"));
+            socket.write_all(response.as_bytes()).unwrap();
+        });
+        (format!("http://{address}/chat"), handle)
+    }
+
+    fn call(url: &str, stream: bool) -> Result<Value> {
+        request_message(
+            &reqwest::blocking::Client::new(),
+            url, "test-key", "test-model",
+            &[json!({"role":"user","content":"hello"})],
+            stream, &json!([])
+        )
+    }
+
+    #[test]
+    fn http_error_and_invalid_json_are_rejected() {
+        for (status, body) in [
+            ("401 Unauthorized", r#"{"error":"unauthorized"}"#),
+            ("429 Too Many Requests", "rate limited"),
+            ("500 Internal Server Error", "failed"),
+        ] {
+            let (url, handle) = serve(status, body, "application/json");
+            assert!(call(&url, false).is_err());
+            handle.join().unwrap();
+        }
+        let (url, handle) = serve("200 OK", "not json", "application/json");
+        assert!(call(&url, false).is_err());
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn nonstreaming_response_requires_assistant_message() {
+        for body in [r#"{}"#, r#"{"choices":[]}"#, r#"{"choices":[{}]}"#] {
+            let (url, handle) = serve("200 OK", body, "application/json");
+            assert!(call(&url, false).is_err());
+            handle.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn streaming_text_success_removes_empty_tool_calls() {
+        let body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\" world\"},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let (url, handle) = serve("200 OK", body, "text/event-stream");
+        let result = call(&url, true).unwrap();
+        assert_eq!(result["content"], "hello world");
+        assert!(result.get("tool_calls").is_none());
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn streaming_provider_error_and_missing_done_are_rejected() {
+        for body in [
+            "data: {\"error\":{\"message\":\"denied\"}}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: [DONE]\n\n",
+        ] {
+            let (url, handle) = serve("200 OK", body, "text/event-stream");
+            assert!(call(&url, true).is_err());
+            handle.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn streaming_invalid_finish_reason_is_rejected() {
+        for reason in ["length", "content_filter", "unknown"] {
+            let body = format!(
+                "data: {{\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"{reason}\"}}]}}\n\ndata: [DONE]\n\n"
+            );
+            let (url, handle) = serve("200 OK", &body, "text/event-stream");
+            assert!(call(&url, true).is_err());
+            handle.join().unwrap();
+        }
+    }
+}
