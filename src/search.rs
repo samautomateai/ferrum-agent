@@ -101,7 +101,6 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod search_regressions {
     use super::*;
@@ -117,7 +116,11 @@ mod search_regressions {
     #[test]
     fn line_snippets_are_bounded() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("long.txt"), format!("key{}\n", "x".repeat(500))).unwrap();
+        fs::write(
+            dir.path().join("long.txt"),
+            format!("key{}\n", "x".repeat(500)),
+        )
+        .unwrap();
         let result = grep(dir.path(), "key").unwrap();
         let snippet = result.splitn(3, ':').nth(2).unwrap();
         assert_eq!(snippet.trim_end().chars().count(), 240);
@@ -141,7 +144,11 @@ mod search_regressions {
         let root = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         fs::write(outside.path().join("secret.txt"), "needle\n").unwrap();
-        symlink(outside.path().join("secret.txt"), root.path().join("link.txt")).unwrap();
+        symlink(
+            outside.path().join("secret.txt"),
+            root.path().join("link.txt"),
+        )
+        .unwrap();
         assert!(!grep(root.path(), "needle").unwrap().contains("link.txt"));
     }
 }

@@ -79,7 +79,6 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod boundary_regressions {
     use super::*;
@@ -93,7 +92,10 @@ mod boundary_regressions {
     #[test]
     fn accepts_case_insensitive_sha256_and_rejects_nonhex() {
         let checksum = digest(b"abc").to_uppercase();
-        assert_eq!(replace_once(b"abc", "b", "B", Some(&checksum)).unwrap(), b"aBc");
+        assert_eq!(
+            replace_once(b"abc", "b", "B", Some(&checksum)).unwrap(),
+            b"aBc"
+        );
         assert!(replace_once(b"abc", "a", "b", Some(&"z".repeat(64))).is_err());
     }
 

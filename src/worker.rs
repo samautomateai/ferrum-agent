@@ -307,7 +307,6 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod frame_regressions {
     use super::*;
@@ -343,7 +342,8 @@ mod frame_regressions {
     fn request_defaults_preserve_backward_compatibility() {
         let request: Request = serde_json::from_value(serde_json::json!({
             "name":null,"arguments":null
-        })).unwrap();
+        }))
+        .unwrap();
         assert!(request.event.is_none());
         assert!(!request.shutdown);
         let encoded = serde_json::to_value(&request).unwrap();
@@ -354,8 +354,9 @@ mod frame_regressions {
     fn missing_extension_and_zero_timeout_are_rejected() {
         let dir = tempfile::tempdir().unwrap();
         assert!(ExtensionWorker::load(dir.path(), Duration::ZERO).is_err());
-        assert!(ExtensionWorker::load(
-            &dir.path().join("absent.js"), Duration::from_millis(100)
-        ).is_err());
+        assert!(
+            ExtensionWorker::load(&dir.path().join("absent.js"), Duration::from_millis(100))
+                .is_err()
+        );
     }
 }

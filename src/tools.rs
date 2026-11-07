@@ -147,7 +147,6 @@ pub(super) fn execute(
     }
 }
 
-
 #[cfg(test)]
 mod tool_regressions {
     use super::*;
@@ -176,9 +175,15 @@ mod tool_regressions {
         let args = json!({"path":"a.txt","old":"old","new":"new",
             "expected_sha256":"0000000000000000000000000000000000000000000000000000000000000000"});
         assert!(execute(dir.path(), true, "edit_file", &args).is_err());
-        assert!(execute(dir.path(), true, "edit_file", &json!({
-            "path":"a.txt","old":"old","new":"new","expected_sha256":42
-        })).is_err());
+        assert!(execute(
+            dir.path(),
+            true,
+            "edit_file",
+            &json!({
+                "path":"a.txt","old":"old","new":"new","expected_sha256":42
+            })
+        )
+        .is_err());
         assert_eq!(fs::read_to_string(dir.path().join("a.txt")).unwrap(), "old");
     }
 
@@ -187,12 +192,24 @@ mod tool_regressions {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.txt");
         fs::write(&path, "old").unwrap();
-        assert!(execute(dir.path(), false, "write_file", &json!({
-            "path":"a.txt","content":"new"
-        })).is_err());
-        assert!(execute(dir.path(), false, "edit_file", &json!({
-            "path":"a.txt","old":"old","new":"new"
-        })).is_err());
+        assert!(execute(
+            dir.path(),
+            false,
+            "write_file",
+            &json!({
+                "path":"a.txt","content":"new"
+            })
+        )
+        .is_err());
+        assert!(execute(
+            dir.path(),
+            false,
+            "edit_file",
+            &json!({
+                "path":"a.txt","old":"old","new":"new"
+            })
+        )
+        .is_err());
         assert_eq!(fs::read_to_string(path).unwrap(), "old");
     }
 

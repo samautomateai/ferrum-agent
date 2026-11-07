@@ -62,7 +62,6 @@ pub(super) fn persist(args: &Args, db: &mut Option<Connection>, messages: &[Valu
     Ok(())
 }
 
-
 #[cfg(test)]
 mod persistence_regressions {
     use super::*;
@@ -74,7 +73,7 @@ mod persistence_regressions {
         let messages = vec![
             json!({"role":"user","content":"first"}),
             json!({"role":"assistant","content":"second","tool_calls":[{"id":"1"}]}),
-            json!({"role":"tool","content":null})
+            json!({"role":"tool","content":null}),
         ];
         save_sqlite(&mut db, "session", &messages).unwrap();
         assert_eq!(load_sqlite(&db, "session").unwrap(), messages);
@@ -106,8 +105,12 @@ mod persistence_regressions {
     fn sqlite_foreign_keys_and_wal_are_enabled() {
         let dir = tempfile::tempdir().unwrap();
         let db = open_store(&dir.path().join("state.db")).unwrap();
-        let fk: i64 = db.query_row("PRAGMA foreign_keys", [], |row| row.get(0)).unwrap();
-        let mode: String = db.query_row("PRAGMA journal_mode", [], |row| row.get(0)).unwrap();
+        let fk: i64 = db
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .unwrap();
+        let mode: String = db
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(fk, 1);
         assert_eq!(mode.to_lowercase(), "wal");
     }
