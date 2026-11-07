@@ -45,6 +45,11 @@ fn path_argument(args: &Value) -> Result<Option<&str>> {
     if path.is_empty() || path.starts_with('-') || path.contains('\0') {
         bail!("invalid Git path");
     }
+    // Reject POSIX-rooted paths on Windows as well as native absolute paths.
+    // Git pathspecs must remain portable across supported hosts.
+    if path.starts_with('/') || path.starts_with('\\') || path.contains('\\') {
+        bail!("Git path must use relative forward-slash separators");
+    }
     let parsed = Path::new(path);
     if parsed.is_absolute()
         || parsed.components().any(|component| {
@@ -142,6 +147,10 @@ mod tests {
         assert!(path_argument(&json!({"path":"../secret"})).is_err());
         assert!(path_argument(&json!({"path":"--output=/tmp/x"})).is_err());
         assert!(path_argument(&json!({"path":"/tmp/x"})).is_err());
+        assert!(path_argument(&json!({"path":"\\\\server\\share"})).is_err());
+        assert!(path_argument(&json!({"path":"C:\\\\Windows"})).is_err());
+        assert!(path_argument(&json!({"path":"safe\\\\..\\\\secret"})).is_err());
+        assert!(path_argument(&json!({"path":"safe/file.rs"})).is_ok());
         assert!(path_argument(&json!({"path":2})).is_err());
     }
 }
