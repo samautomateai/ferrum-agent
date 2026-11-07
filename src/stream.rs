@@ -150,7 +150,6 @@ pub(super) fn request_message(
     Ok(message)
 }
 
-
 #[cfg(test)]
 mod regression_tests {
     use super::*;
@@ -170,15 +169,26 @@ mod regression_tests {
     #[test]
     fn fragmented_tool_calls_merge_by_index() {
         let mut message = empty_message();
-        merge_delta(&mut message, &json!({"tool_calls":[
-            {"index":1,"id":"call_","function":{"name":"read_","arguments":"{\"path\":"}}
-        ]})).unwrap();
-        merge_delta(&mut message, &json!({"tool_calls":[
-            {"index":1,"id":"two","function":{"name":"file","arguments":"\"a\"}"}}
-        ]})).unwrap();
+        merge_delta(
+            &mut message,
+            &json!({"tool_calls":[
+                {"index":1,"id":"call_","function":{"name":"read_","arguments":"{\"path\":"}}
+            ]}),
+        )
+        .unwrap();
+        merge_delta(
+            &mut message,
+            &json!({"tool_calls":[
+                {"index":1,"id":"two","function":{"name":"file","arguments":"\"a\"}"}}
+            ]}),
+        )
+        .unwrap();
         assert_eq!(message["tool_calls"][1]["id"], "call_two");
         assert_eq!(message["tool_calls"][1]["function"]["name"], "read_file");
-        assert_eq!(message["tool_calls"][1]["function"]["arguments"], "{\"path\":\"a\"}");
+        assert_eq!(
+            message["tool_calls"][1]["function"]["arguments"],
+            "{\"path\":\"a\"}"
+        );
     }
 
     #[test]
@@ -191,10 +201,9 @@ mod regression_tests {
     #[test]
     fn sse_done_error_and_content_are_handled() {
         let mut message = empty_message();
-        assert!(!parse_sse_event(
-            &mut message,
-            r#"{"choices":[{"delta":{"content":"ok"}}]}"#
-        ).unwrap());
+        assert!(
+            !parse_sse_event(&mut message, r#"{"choices":[{"delta":{"content":"ok"}}]}"#).unwrap()
+        );
         assert_eq!(message["content"], "ok");
         assert!(parse_sse_event(&mut message, "[DONE]").unwrap());
         assert!(parse_sse_event(&mut message, "not-json").is_err());
