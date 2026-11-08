@@ -36,7 +36,12 @@ fn exchange(child: &mut std::process::Child, request: &Value) -> Value {
         let status = child.wait().unwrap();
         let mut stderr = String::new();
         use std::io::Read;
-        child.stderr.as_mut().unwrap().read_to_string(&mut stderr).unwrap();
+        child
+            .stderr
+            .as_mut()
+            .unwrap()
+            .read_to_string(&mut stderr)
+            .unwrap();
         panic!("worker exited before JSON response: {status}; stderr: {stderr}");
     }
     serde_json::from_str(&line).unwrap()
