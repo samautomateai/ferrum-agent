@@ -64,6 +64,7 @@ jobs:
       - name: Mandatory quality contract
         run: task quality
   platforms:
+    needs: quality
     strategy:
       fail-fast: false
       matrix:
