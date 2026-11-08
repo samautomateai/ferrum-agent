@@ -1,7 +1,7 @@
 //! End-to-end tests for the staged Tokio supervisor using the real Ferrum worker binary.
+use ferrum::worker_supervisor::{SupervisorError, WorkerSupervisor};
 use std::{fs, io, path::Path, time::Duration};
 use tokio::time::Instant;
-use ferrum::worker_supervisor::{SupervisorError, WorkerSupervisor};
 
 fn extension() -> tempfile::NamedTempFile {
     let source = tempfile::NamedTempFile::new().unwrap();
