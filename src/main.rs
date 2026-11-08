@@ -9,6 +9,8 @@ use std::{
     time::Duration,
 };
 
+#[allow(dead_code)] // M3.1 staged transport: compiled and tested, not activated yet.
+mod async_ipc;
 mod edit;
 mod error_contract;
 mod extensions;
@@ -20,8 +22,10 @@ mod stream;
 mod supervisor_runtime;
 mod tools;
 mod worker;
-#[cfg(test)]
+#[allow(dead_code)] // M3.1 staged lifecycle is compiled in all build profiles.
 mod worker_lifecycle;
+#[allow(dead_code)] // M3.1 staged supervisor is not the default worker transport yet.
+mod worker_supervisor;
 use stream::request_message;
 use tools::{execute, tool_definitions};
 use worker::ExtensionWorker;
