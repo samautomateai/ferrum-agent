@@ -79,6 +79,10 @@ impl WorkerSupervisor {
         if Instant::now() >= deadline {
             return Err(SupervisorError::NotStarted(io::ErrorKind::TimedOut));
         }
+        // Reject malformed frames before queueing: no worker side effects can occur.
+        if payload.len() > 2 * 1024 * 1024 || payload.contains(&b'\n') {
+            return Err(SupervisorError::NotStarted(io::ErrorKind::InvalidInput));
+        }
         let (reply, response) = oneshot::channel();
         timeout_at(
             deadline,
