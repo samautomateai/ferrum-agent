@@ -14,6 +14,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           components: rustfmt, clippy, llvm-tools-preview
+      - name: Cache Rust dependencies and compilation (quality)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-quality-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.run_id }}
+          restore-keys: |
+            rust-quality-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
+            rust-quality-${{ runner.os }}-${{ runner.arch }}-
       # Install directly from crates.io: GitHub release downloads repeatedly return 504.
       # Cache the resulting binaries for subsequent CI runs.
       - name: Restore Rust quality tools
@@ -54,5 +65,16 @@ jobs:
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+      - name: Cache Rust dependencies and compilation (platforms)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-platforms-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.run_id }}
+          restore-keys: |
+            rust-platforms-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
+            rust-platforms-${{ runner.os }}-${{ runner.arch }}-
       - run: cargo test --locked --workspace --all-targets
       - run: cargo build --locked --release
