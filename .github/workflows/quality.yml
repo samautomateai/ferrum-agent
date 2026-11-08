@@ -62,12 +62,35 @@ jobs:
         run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
       - name: Add Go CLI tools to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Cache sccache executable
+        id: sccache-bin-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ~/.cargo/bin/sccache
+          key: sccache-0.12.0-${{ runner.os }}-${{ runner.arch }}
+      - name: Install sccache
+        if: steps.sccache-bin-cache.outputs.cache-hit != 'true'
+        run: cargo install --locked sccache --version 0.12.0
+      - name: Enable compiler caching for quality
+        shell: bash
+        run: |
+          echo "RUSTC_WRAPPER=$(command -v sccache)" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_VERSION=ferrum-coverage-v1" >> "$GITHUB_ENV"
       - name: Record quality build start
         id: quality-start
         shell: bash
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
       - name: Mandatory quality contract
         run: task quality
+      - name: Compiler cache statistics (quality)
+        if: always()
+        shell: bash
+        run: |
+          if command -v sccache >/dev/null 2>&1; then
+            sccache --show-stats || true
+            sccache --stop-server || true
+          fi
       - name: Report cache effectiveness and quality duration
         if: always()
         shell: bash
