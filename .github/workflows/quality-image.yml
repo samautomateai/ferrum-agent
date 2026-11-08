@@ -51,7 +51,7 @@ jobs:
           set -euo pipefail
           [[ "$BASE_IMAGE" =~ ^[a-zA-Z0-9./_-]+@sha256:[a-f0-9]{64}$ ]] || exit 1
           for version in "$ACTIONLINT_VERSION" "$TASK_VERSION" "$CARGO_AUDIT_VERSION" "$CARGO_DENY_VERSION" "$ZIZMOR_VERSION"; do
-            [[ "$version" =~ ^v?[0-9]+\\.[0-9]+\\.[0-9]+$ ]] || exit 1
+            [[ "$version" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
           done
       - name: Set up QEMU
         uses: docker/setup-qemu-action@68827325e0b33c7199eb31dd4e31fbe9023e06e
