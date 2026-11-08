@@ -42,7 +42,7 @@ enum CommandMessage {
 
 pub struct WorkerSupervisor {
     sender: mpsc::Sender<CommandMessage>,
-    actor: JoinHandle<()>,
+    actor: Option<JoinHandle<()>>,
 }
 
 impl WorkerSupervisor {
@@ -68,7 +68,7 @@ impl WorkerSupervisor {
             .ok_or(SupervisorError::NotStarted(io::ErrorKind::BrokenPipe))?;
         let (sender, receiver) = mpsc::channel(COMMAND_CAPACITY);
         let actor = tokio::spawn(actor_loop(child, FramedIpc::new(stdin, stdout), receiver));
-        Ok(Self { sender, actor })
+        Ok(Self { sender, actor: Some(actor) })
     }
 
     pub async fn exchange(
@@ -101,7 +101,7 @@ impl WorkerSupervisor {
             .map_err(|_| SupervisorError::Unknown(io::ErrorKind::BrokenPipe))?
     }
 
-    pub async fn shutdown(self) -> Result<(), SupervisorError> {
+    pub async fn shutdown(mut self) -> Result<(), SupervisorError> {
         let (reply, response) = oneshot::channel();
         let deadline = Instant::now() + SHUTDOWN_GRACE;
         timeout_at(
@@ -116,11 +116,31 @@ impl WorkerSupervisor {
             .await
             .map_err(|_| SupervisorError::Unknown(io::ErrorKind::TimedOut))?
             .map_err(|_| SupervisorError::Closed)?;
-        timeout_at(deadline, self.actor)
-            .await
-            .map_err(|_| SupervisorError::Unknown(io::ErrorKind::TimedOut))?
-            .map_err(|_| SupervisorError::Closed)?;
+        let actor = self.actor.take().ok_or(SupervisorError::Closed)?;
+        // Preserve ownership on deadline expiry: dropping a JoinHandle detaches it.
+        // The reaper owns the task until it exits, even if the caller times out.
+        let mut actor = actor;
+        if timeout_at(deadline, &mut actor).await.is_err() {
+            tokio::spawn(async move { let _ = actor.await; });
+            return Err(SupervisorError::Unknown(io::ErrorKind::TimedOut));
+        }
+        // A completed actor must not have panicked or been cancelled.
+        // The result has already been consumed by timeout_at above.
         shutdown_result
+    }
+}
+
+impl Drop for WorkerSupervisor {
+    fn drop(&mut self) {
+        // Closing the channel lets the actor kill and reap its child on exit.
+        // Keep the JoinHandle owned by a reaper rather than detaching it.
+        if let Some(actor) = self.actor.take() {
+            let sender = self.sender.clone();
+            tokio::spawn(async move {
+                drop(sender);
+                let _ = actor.await;
+            });
+        }
     }
 }
 
