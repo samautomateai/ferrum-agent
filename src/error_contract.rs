@@ -73,7 +73,14 @@ impl fmt::Debug for RuntimeFailure {
 
 impl fmt::Display for RuntimeFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {} (outcome={:?}, retryable={})", self.code(), self.public_message, self.outcome(), self.retryable())
+        write!(
+            f,
+            "{}: {} (outcome={:?}, retryable={})",
+            self.code(),
+            self.public_message,
+            self.outcome(),
+            self.retryable()
+        )
     }
 }
 
