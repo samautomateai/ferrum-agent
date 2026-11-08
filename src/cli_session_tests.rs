@@ -21,7 +21,10 @@ mod cli_session_contracts {
             } else {
                 config.export_json = Some(dir.path().join("output.json"));
             }
-            assert!(main_with_args(config).unwrap_err().to_string().contains("--session-db"));
+            assert!(main_with_args(config)
+                .unwrap_err()
+                .to_string()
+                .contains("--session-db"));
         }
     }
 
@@ -44,7 +47,10 @@ mod cli_session_contracts {
         main_with_args(config).unwrap();
         let actual: Vec<Value> = serde_json::from_slice(&fs::read(output).unwrap()).unwrap();
         assert_eq!(actual, expected);
-        assert_eq!(load_sqlite(&open_store(&db).unwrap(), "cli-test").unwrap(), expected);
+        assert_eq!(
+            load_sqlite(&open_store(&db).unwrap(), "cli-test").unwrap(),
+            expected
+        );
     }
 
     #[test]
@@ -57,7 +63,9 @@ mod cli_session_contracts {
         config.session_db = Some(db.clone());
         config.import_json = Some(input);
         assert!(main_with_args(config).is_err());
-        assert!(load_sqlite(&open_store(&db).unwrap(), "default").unwrap().is_empty());
+        assert!(load_sqlite(&open_store(&db).unwrap(), "default")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
