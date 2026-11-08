@@ -19,10 +19,10 @@ mod sessions;
 mod stream;
 
 mod supervisor_runtime;
-mod worker_lifecycle;
-mod worker_supervisor;
 mod tools;
 mod worker;
+mod worker_lifecycle;
+mod worker_supervisor;
 use stream::request_message;
 use tools::{execute, tool_definitions};
 use worker::ExtensionWorker;

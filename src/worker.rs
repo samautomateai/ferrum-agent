@@ -44,7 +44,9 @@ impl Process {
         let supervisor = crate::supervisor_runtime::run_sync(async {
             crate::worker_supervisor::WorkerSupervisor::spawn(&exe, source)
         })??;
-        Ok(Self { supervisor: Some(supervisor) })
+        Ok(Self {
+            supervisor: Some(supervisor),
+        })
     }
 
     fn request(&mut self, request: &Request, timeout: Duration) -> Result<Response> {
@@ -54,23 +56,30 @@ impl Process {
                 ErrorCode::WorkerCrash,
                 ErrorOutcome::NotStarted,
                 "worker request too large",
-            ).into());
+            )
+            .into());
         }
         let supervisor = self.supervisor.as_ref().context("worker stopped")?;
-        let reply = crate::supervisor_runtime::run_sync(supervisor.exchange(
-            encoded,
-            tokio::time::Instant::now() + timeout,
-        ))?
+        let reply = crate::supervisor_runtime::run_sync(
+            supervisor.exchange(encoded, tokio::time::Instant::now() + timeout),
+        )?
         .map_err(map_supervisor_error)?;
         let response: Response = serde_json::from_slice(&reply).map_err(|error| {
-            RuntimeFailure::new(ErrorCode::WorkerCrash, ErrorOutcome::Unknown,
-                "invalid worker response").with_internal_cause(error.to_string())
+            RuntimeFailure::new(
+                ErrorCode::WorkerCrash,
+                ErrorOutcome::Unknown,
+                "invalid worker response",
+            )
+            .with_internal_cause(error.to_string())
         })?;
         if let Some(error) = response.error.as_ref() {
             return Err(RuntimeFailure::new(
-                ErrorCode::WorkerCrash, ErrorOutcome::Unknown,
+                ErrorCode::WorkerCrash,
+                ErrorOutcome::Unknown,
                 "extension worker reported an error",
-            ).with_internal_cause(error.clone()).into());
+            )
+            .with_internal_cause(error.clone())
+            .into());
         }
         Ok(response)
     }
@@ -93,17 +102,28 @@ fn map_supervisor_error(error: crate::worker_supervisor::SupervisorError) -> Run
     use crate::worker_supervisor::SupervisorError;
     let (code, outcome, message) = match error {
         SupervisorError::NotStarted(_) => (
-            ErrorCode::WorkerCrash, ErrorOutcome::NotStarted, "worker request not started"),
+            ErrorCode::WorkerCrash,
+            ErrorOutcome::NotStarted,
+            "worker request not started",
+        ),
         SupervisorError::Unknown(std::io::ErrorKind::TimedOut) => (
-            ErrorCode::WorkerTimeout, ErrorOutcome::Unknown, "worker deadline exceeded"),
+            ErrorCode::WorkerTimeout,
+            ErrorOutcome::Unknown,
+            "worker deadline exceeded",
+        ),
         SupervisorError::Unknown(_) | SupervisorError::Closed => (
-            ErrorCode::WorkerCrash, ErrorOutcome::Unknown, "worker connection failed"),
+            ErrorCode::WorkerCrash,
+            ErrorOutcome::Unknown,
+            "worker connection failed",
+        ),
     };
     RuntimeFailure::new(code, outcome, message)
 }
 
 impl Drop for Process {
-    fn drop(&mut self) { self.stop(); }
+    fn drop(&mut self) {
+        self.stop();
+    }
 }
 
 pub struct ExtensionWorker {
@@ -471,9 +491,9 @@ mod tokio_facade_contracts {
 
     #[test]
     fn supervisor_error_mapping_preserves_unknown_timeout() {
-        let failure = map_supervisor_error(
-            crate::worker_supervisor::SupervisorError::Unknown(std::io::ErrorKind::TimedOut),
-        );
+        let failure = map_supervisor_error(crate::worker_supervisor::SupervisorError::Unknown(
+            std::io::ErrorKind::TimedOut,
+        ));
         assert_eq!(failure.code(), ErrorCode::WorkerTimeout.as_str());
         assert_eq!(failure.outcome(), ErrorOutcome::Unknown);
         assert!(!failure.retryable());
@@ -481,18 +501,18 @@ mod tokio_facade_contracts {
 
     #[test]
     fn supervisor_error_mapping_preserves_not_started() {
-        let failure = map_supervisor_error(
-            crate::worker_supervisor::SupervisorError::NotStarted(std::io::ErrorKind::InvalidInput),
-        );
+        let failure = map_supervisor_error(crate::worker_supervisor::SupervisorError::NotStarted(
+            std::io::ErrorKind::InvalidInput,
+        ));
         assert_eq!(failure.outcome(), ErrorOutcome::NotStarted);
         assert!(!failure.retryable());
     }
 
     #[test]
     fn supervisor_error_display_does_not_expose_internal_details() {
-        let failure = map_supervisor_error(
-            crate::worker_supervisor::SupervisorError::Unknown(std::io::ErrorKind::PermissionDenied),
-        );
+        let failure = map_supervisor_error(crate::worker_supervisor::SupervisorError::Unknown(
+            std::io::ErrorKind::PermissionDenied,
+        ));
         assert!(!failure.to_string().contains("PermissionDenied"));
     }
 }
