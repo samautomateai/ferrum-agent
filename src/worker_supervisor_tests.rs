@@ -93,18 +93,22 @@ fn completed_write_without_response_times_out() {
 }
 
 fn simulated_process(
-    write_result: Option<std::io::Result<()>>,
+    write_result: std::io::Result<()>,
     response: Option<Result<Response>>,
 ) -> Process {
-    let (writes, _writer_rx) = mpsc::sync_channel(1);
+    let (writes, writer_rx) = mpsc::sync_channel(1);
     let (write_tx, write_results) = mpsc::sync_channel(1);
-    if let Some(result) = write_result {
-        write_tx.send(result).unwrap();
-    }
     let (reply_tx, replies) = mpsc::sync_channel(1);
-    if let Some(reply) = response {
-        reply_tx.send(reply).unwrap();
-    }
+    thread::spawn(move || {
+        if writer_rx.recv().is_ok() {
+            let _ = write_tx.send(write_result);
+        }
+    });
+    thread::spawn(move || {
+        if let Some(reply) = response {
+            let _ = reply_tx.send(reply);
+        }
+    });
     Process {
         child: Command::new(std::env::current_exe().unwrap())
             .arg("--help")
@@ -122,10 +126,10 @@ fn simulated_process(
 #[test]
 fn failed_worker_write_has_unknown_side_effect_outcome() {
     let mut process = simulated_process(
-        Some(Err(std::io::Error::new(
+        Err(std::io::Error::new(
             std::io::ErrorKind::BrokenPipe,
             "secret internal write failure",
-        ))),
+        )),
         None,
     );
     let failure = process
@@ -141,7 +145,7 @@ fn failed_worker_write_has_unknown_side_effect_outcome() {
 #[test]
 fn malformed_worker_response_is_not_replayed() {
     let mut process = simulated_process(
-        Some(Ok(())),
+        Ok(()),
         Some(Err(anyhow::anyhow!("malformed worker response"))),
     );
     let failure = process
@@ -154,7 +158,7 @@ fn malformed_worker_response_is_not_replayed() {
 #[test]
 fn explicit_worker_error_has_sanitized_public_contract() {
     let mut process = simulated_process(
-        Some(Ok(())),
+        Ok(()),
         Some(Ok(Response {
             manifest: None,
             result: None,
@@ -173,7 +177,7 @@ fn explicit_worker_error_has_sanitized_public_contract() {
 #[test]
 fn successful_worker_response_is_returned_without_retry() {
     let mut process = simulated_process(
-        Some(Ok(())),
+        Ok(()),
         Some(Ok(Response {
             manifest: None,
             result: Some(serde_json::json!({"ok":true})),
