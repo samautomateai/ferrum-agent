@@ -236,7 +236,10 @@ mod http_contract_tests {
                 "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\n",
                 "Content-Length: {}\r\nConnection: close\r\n\r\n{body}"
             ),
-            body.len()
+            body.len(),
+            status = status,
+            content_type = content_type,
+            body = body
         );
         let handle = thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
