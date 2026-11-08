@@ -318,6 +318,42 @@ mod http_contract_tests {
     }
 
     #[test]
+    fn streaming_multiline_sse_and_fragmented_tool_calls() {
+        let first = json!({"choices":[{"delta":{"tool_calls":[{
+            "index":0,"id":"call_1",
+            "function":{"name":"read_","arguments":"{\"path\":"}
+        }]}}]});
+        let second = json!({"choices":[{"delta":{"tool_calls":[{
+            "index":0,"function":{"name":"file","arguments":"\"a.txt\"}"}
+        }]},"finish_reason":"tool_calls"}]});
+        let multiline = |event: Value| {
+            let serialized = event.to_string();
+            let split = serialized.find("\"delta\"").unwrap();
+            format!("data: {}\ndata: {}\n\n", &serialized[..split], &serialized[split..])
+        };
+        // SSE data lines must join with a newline; split at a JSON whitespace boundary.
+        let first = multiline(first);
+        let second = multiline(second);
+        let body = format!("{first}{second}data: [DONE]\n\n");
+        let (url, handle) = serve("200 OK", &body, "text/event-stream");
+        let result = call(&url, true).unwrap();
+        assert_eq!(result["tool_calls"][0]["id"], "call_1");
+        assert_eq!(result["tool_calls"][0]["function"]["name"], "read_file");
+        assert_eq!(result["tool_calls"][0]["function"]["arguments"], r#"{"path":"a.txt"}"#);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn streaming_final_event_without_trailing_blank_line_is_accepted() {
+        let event = json!({"choices":[{"delta":{"content":"complete"},"finish_reason":"stop"}]});
+        let body = format!("data: {event}\n\ndata: [DONE]");
+        let (url, handle) = serve("200 OK", &body, "text/event-stream");
+        let result = call(&url, true).unwrap();
+        assert_eq!(result["content"], "complete");
+        handle.join().unwrap();
+    }
+
+    #[test]
     fn streaming_invalid_finish_reason_is_rejected() {
         for reason in ["length", "content_filter", "unknown"] {
             let body = format!(
