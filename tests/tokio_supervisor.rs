@@ -1,15 +1,7 @@
 //! End-to-end tests for the staged Tokio supervisor using the real Ferrum worker binary.
-#![allow(dead_code)] // Imported production modules are exercised selectively here.
-#[path = "../src/async_ipc.rs"]
-mod async_ipc;
-#[path = "../src/worker_lifecycle.rs"]
-mod worker_lifecycle;
-#[path = "../src/worker_supervisor.rs"]
-mod worker_supervisor;
-
 use std::{fs, io, path::Path, time::Duration};
 use tokio::time::Instant;
-use worker_supervisor::{SupervisorError, WorkerSupervisor};
+use ferrum::worker_supervisor::{SupervisorError, WorkerSupervisor};
 
 fn extension() -> tempfile::NamedTempFile {
     let source = tempfile::NamedTempFile::new().unwrap();
