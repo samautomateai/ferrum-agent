@@ -1,9 +1,9 @@
+use serde_json::{json, Value};
 use std::{
     fs,
     io::{BufRead, BufReader, Write},
     process::{Command, Stdio},
 };
-use serde_json::{json, Value};
 
 fn extension_file(source: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
@@ -37,11 +37,13 @@ fn exchange(child: &mut std::process::Child, request: &Value) -> Value {
 
 #[test]
 fn worker_startup_invocation_event_and_shutdown() {
-    let (_dir, source) = extension_file(r#"
+    let (_dir, source) = extension_file(
+        r#"
         let count = 0;
         pi.registerTool({name:'echo',execute:args=>({echo:args,count})});
         pi.on('tick',()=>{count++});
-    "#);
+    "#,
+    );
     let mut child = worker(&source);
     let hello = exchange(&mut child, &json!({"name":null,"arguments":null}));
     assert_eq!(hello["manifest"]["tools"][0], "echo");
@@ -49,21 +51,29 @@ fn worker_startup_invocation_event_and_shutdown() {
     let result = exchange(&mut child, &json!({"name":"echo","arguments":{"x":"🌍"}}));
     assert_eq!(result["result"]["echo"]["x"], "🌍");
     assert_eq!(result["result"]["count"], 0);
-    let event = exchange(&mut child, &json!({"name":null,"event":"tick","arguments":{}}));
+    let event = exchange(
+        &mut child,
+        &json!({"name":null,"event":"tick","arguments":{}}),
+    );
     assert!(event["error"].is_null());
     let result = exchange(&mut child, &json!({"name":"echo","arguments":{}}));
     assert_eq!(result["result"]["count"], 1);
-    let shutdown = exchange(&mut child, &json!({"name":null,"arguments":null,"shutdown":true}));
+    let shutdown = exchange(
+        &mut child,
+        &json!({"name":null,"arguments":null,"shutdown":true}),
+    );
     assert!(shutdown["error"].is_null());
     assert!(child.wait().unwrap().success());
 }
 
 #[test]
 fn worker_reports_tool_failures_and_continues() {
-    let (_dir, source) = extension_file(r#"
+    let (_dir, source) = extension_file(
+        r#"
         pi.registerTool({name:'fail',execute:()=>{throw Error('intentional')}});
         pi.registerTool({name:'ok',execute:()=>7});
-    "#);
+    "#,
+    );
     let mut child = worker(&source);
     let _ = exchange(&mut child, &json!({"name":null,"arguments":null}));
     let failed = exchange(&mut child, &json!({"name":"fail","arguments":{}}));
@@ -90,7 +100,12 @@ fn worker_rejects_invalid_extension_and_protocol() {
 
     let (_dir, source) = extension_file("pi.registerTool({name:'ok',execute:()=>1})");
     let mut child = worker(&source);
-    child.stdin.as_mut().unwrap().write_all(b"not-json\n").unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"not-json\n")
+        .unwrap();
     drop(child.stdin.take());
     assert!(!child.wait().unwrap().success());
 }
