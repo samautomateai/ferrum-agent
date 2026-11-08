@@ -157,3 +157,49 @@ async fn repeated_worker_start_exchange_and_shutdown_cycles() {
         worker.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn timed_out_inflight_request_has_unknown_outcome_and_is_not_replayed() {
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        source.path(),
+        "pi.registerTool({name:'hang',execute:()=>{while(true){}}});",
+    )
+    .unwrap();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let request = br#"{"name":"hang","arguments":{}}"#.to_vec();
+    let result = worker
+        .exchange(request, Instant::now() + Duration::from_millis(250))
+        .await;
+    assert!(matches!(
+        result,
+        Err(SupervisorError::Unknown(io::ErrorKind::TimedOut))
+    ));
+    // The supervisor must not retry an invocation whose side effects are uncertain.
+    // Dropping the sender lets the actor finish its failed exchange and reap the child.
+    drop(worker);
+}
+
+#[tokio::test]
+async fn cancelled_queued_caller_does_not_poison_healthy_worker() {
+    let source = extension();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let cancelled = worker.exchange(
+        br#"{"name":null,"arguments":null}"#.to_vec(),
+        Instant::now(),
+    );
+    assert!(matches!(
+        cancelled.await,
+        Err(SupervisorError::NotStarted(io::ErrorKind::TimedOut))
+    ));
+    let reply = worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    assert!(serde_json::from_slice::<serde_json::Value>(&reply).is_ok());
+    worker.shutdown().await.unwrap();
+}
