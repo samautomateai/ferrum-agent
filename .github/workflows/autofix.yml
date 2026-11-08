@@ -172,11 +172,20 @@ jobs:
           cargo install --locked cargo-audit
           cargo install --locked cargo-deny
           cargo install --locked zizmor
+      - name: Cache Go-based quality tools
+        id: go-quality-tools-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ~/go/bin
+          key: go-quality-tools-v1-${{ runner.os }}-${{ runner.arch }}
       - name: Install actionlint
+        if: steps.go-quality-tools-cache.outputs.cache-hit != 'true'
         run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
       - name: Install Task
+        if: steps.go-quality-tools-cache.outputs.cache-hit != 'true'
         run: go install github.com/go-task/task/v3/cmd/task@latest
       - name: Install Gitleaks CLI
+        if: steps.go-quality-tools-cache.outputs.cache-hit != 'true'
         run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
       - name: Add Go CLI tools to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
