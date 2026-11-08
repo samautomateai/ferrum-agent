@@ -102,9 +102,9 @@ jobs:
           if command -v sccache >/dev/null 2>&1; then
             {
               echo '### sccache compiler statistics'
-              echo '\`\`\`text'
+              echo '~~~text'
               sccache --show-stats || true
-              echo '\`\`\`'
+              echo '~~~'
             } >> "$GITHUB_STEP_SUMMARY"
             sccache --stop-server || true
           fi
