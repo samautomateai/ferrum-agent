@@ -151,9 +151,7 @@ async fn repeated_worker_start_exchange_and_shutdown_cycles() {
             .await
             .unwrap();
         assert!(
-            serde_json::from_slice::<serde_json::Value>(&hello)
-                .unwrap()["manifest"]
-                .is_object(),
+            serde_json::from_slice::<serde_json::Value>(&hello).unwrap()["manifest"].is_object(),
             "missing manifest on cycle {cycle}"
         );
         worker.shutdown().await.unwrap();
