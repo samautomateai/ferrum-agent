@@ -250,7 +250,10 @@ mod full_agent_loop_contracts {
         config.session_db = Some(dir.path().join("state.db"));
         run(&config, "create").unwrap();
         handle.join().unwrap();
-        assert_eq!(fs::read_to_string(dir.path().join("new.txt")).unwrap(), "created");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("new.txt")).unwrap(),
+            "created"
+        );
         let db = open_store(config.session_db.as_ref().unwrap()).unwrap();
         let messages = load_sqlite(&db, "default").unwrap();
         assert_eq!(messages.len(), 6);
@@ -274,15 +277,16 @@ mod full_agent_loop_contracts {
         let db = open_store(config.session_db.as_ref().unwrap()).unwrap();
         let messages = load_sqlite(&db, "default").unwrap();
         assert_eq!(messages.len(), 5);
-        assert!(messages[3]["content"].as_str().unwrap().starts_with("ERROR:"));
+        assert!(messages[3]["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("ERROR:"));
     }
 
     #[test]
     fn empty_assistant_content_completes_without_tool_calls() {
         let dir = tempfile::tempdir().unwrap();
-        let (endpoint, handle) = server(vec![
-            json!({"role":"assistant","content":null}),
-        ]);
+        let (endpoint, handle) = server(vec![json!({"role":"assistant","content":null})]);
         let mut config = args(dir.path(), &endpoint);
         config.session_db = Some(dir.path().join("state.db"));
         run(&config, "empty").unwrap();
@@ -311,8 +315,13 @@ mod full_agent_loop_contracts {
         let db = open_store(config.session_db.as_ref().unwrap()).unwrap();
         let messages = load_sqlite(&db, "default").unwrap();
         assert_eq!(messages.len(), 5);
-        assert!(messages[3]["content"].as_str().unwrap().starts_with("ERROR:"));
-        assert!(messages[4]["content"].as_str().unwrap().starts_with("ERROR:"));
+        assert!(messages[3]["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("ERROR:"));
+        assert!(messages[4]["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("ERROR:"));
     }
-
 }
