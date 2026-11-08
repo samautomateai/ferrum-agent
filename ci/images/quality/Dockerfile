@@ -1,6 +1,5 @@
 # Ferrum Linux quality runner image (candidate, not yet enabled)
-# Supply a reviewed digest-pinned Linux/Go/Rust base image when building.
-# The publisher must pass --build-arg BASE_IMAGE=<image>@sha256:<digest>.
+# Version-controlled base; CI resolves this tag to an immutable digest before building.
 ARG BASE_IMAGE=rust:1.99.1-bookworm
 FROM ${BASE_IMAGE}
 
@@ -23,11 +22,11 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 ARG LLVM_COV_VERSION=0.9.1
 ARG SCCACHE_VERSION=0.12.0
 ARG GITLEAKS_VERSION=v8.30.1
-ARG ACTIONLINT_VERSION
-ARG TASK_VERSION
-ARG CARGO_AUDIT_VERSION
-ARG CARGO_DENY_VERSION
-ARG ZIZMOR_VERSION
+ARG ACTIONLINT_VERSION=v1.7.11
+ARG TASK_VERSION=v3.54.0
+ARG CARGO_AUDIT_VERSION=0.22.0
+ARG CARGO_DENY_VERSION=0.18.9
+ARG ZIZMOR_VERSION=1.32.0
 
 SHELL ["/bin/sh", "-ec"]
 
