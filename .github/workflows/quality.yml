@@ -100,7 +100,12 @@ jobs:
         shell: bash
         run: |
           if command -v sccache >/dev/null 2>&1; then
-            sccache --show-stats || true
+            {
+              echo '### sccache compiler statistics'
+              echo '\`\`\`text'
+              sccache --show-stats || true
+              echo '\`\`\`'
+            } >> "$GITHUB_STEP_SUMMARY"
             sccache --stop-server || true
           fi
       - name: Report cache effectiveness and quality duration
