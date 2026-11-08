@@ -1,33 +1,20 @@
-# M3.1 experimental Tokio transport (PR #5)
+# M3.1 Tokio transport integration status (PR #10)
 
-These modules are staged source only and deliberately **not registered in src/main.rs**.
-The existing synchronous ExtensionWorker remains active. Do not enable these modules
-without first completing and testing the integration.
+Status: **draft / unverified**. The production `ExtensionWorker` synchronous facade now delegates to the shared Tokio supervisor. The old per-worker writer and reader threads have been removed from the facade. This is not yet validated by CI.
 
-Outstanding blockers:
-- Replace hard kill on normal shutdown with protocol handshake and bounded grace.
-- Connect WorkerLifecycle to spawn, request, cancellation and shutdown.
-- Handle cancelled callers and guarantee actor/child cleanup; reject late replies.
-- Establish correct NotStarted vs Unknown classification for enqueue races.
-- Add process-tree containment for Windows and Linux, or document platform limits.
-- Add real subprocess fault-injection tests and validate 90% coverage.
-- Compile, format, clippy, audit, and test on Linux amd64/arm64 and Windows amd64.
-- Do not auto-replay any request whose side effects might have occurred.
+## Implemented on branch
+- Register the Tokio transport and lifecycle modules in the production binary.
+- Preserve the synchronous `ExtensionWorker` API for load, invoke, emit and shutdown.
+- Use the process-wide runtime bridge; reject reentrant calls from Tokio contexts.
+- Translate supervisor outcomes into sanitized `RuntimeFailure` codes. Unknown outcomes remain non-retryable and are never automatically replayed.
+- Retain an actor JoinHandle and capture its runtime handle for cleanup from synchronous Drop contexts.
+- Add real-worker concurrency, repeated start/stop, deadline and synchronous-drop regression tests.
 
-## Shutdown contract follow-up
+## Blockers before merging
+1. CI must compile the new facade and pass rustfmt, clippy, security checks, >=90% line coverage, Linux amd64/arm64 and Windows amd64. Latest runs have been action_required or cancelled; no green evidence.
+2. Prove that the supervisor always reaps the direct child after cancellation, shutdown timeout, and Drop; runtime shutdown can still interrupt an async reaper. Do not claim guaranteed cleanup yet.
+3. Add subprocess fault-injection for broken pipe, malformed and truncated responses, and blocked shutdown.
+4. Validate actual CLI extension compatibility and no regression in event and invoke behavior.
+5. M3.2 still owns Windows Job Object and Linux process-group/cgroup descendant containment; killing a direct child does not imply tree cleanup.
 
-Shutdown now propagates the handshake/reaping result rather than unconditionally
-acknowledging success. A response must be valid JSON with a result field and
-no protocol error; child exit must succeed. On timeout the actor attempts to
-kill and reap the direct child. Caller cancellation, process-tree containment,
-full lifecycle integration and real subprocess tests remain unverified.
-
-## Cancellation and deadline handling
-
-The actor checks whether a queued caller has abandoned its response channel before
-writing to the child. This prevents queued cancelled requests from executing.
-Once IPC has begun, a caller timeout remains an Unknown outcome and MUST NOT
-trigger replay. Shutdown now uses the caller's original deadline for enqueue,
-handshake and process exit, rather than resetting the five-second clock.
-Direct-child reaping after a failed shutdown can still exceed the caller deadline;
-process-tree containment and comprehensive cancellation fault tests remain open.
+Do not merge until these are resolved; do not relax quality gates or add Docker requirements.
