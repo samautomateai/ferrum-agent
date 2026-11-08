@@ -128,7 +128,10 @@ fn failed_worker_write_has_unknown_side_effect_outcome() {
         ))),
         None,
     );
-    let failure = process.request(&dummy_request(), Duration::from_secs(1)).err().unwrap();
+    let failure = process
+        .request(&dummy_request(), Duration::from_secs(1))
+        .err()
+        .unwrap();
     let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
     assert_eq!(typed.outcome(), ErrorOutcome::Unknown);
     assert!(!typed.retryable());
@@ -141,7 +144,10 @@ fn malformed_worker_response_is_not_replayed() {
         Some(Ok(())),
         Some(Err(anyhow::anyhow!("malformed worker response"))),
     );
-    let failure = process.request(&dummy_request(), Duration::from_secs(1)).err().unwrap();
+    let failure = process
+        .request(&dummy_request(), Duration::from_secs(1))
+        .err()
+        .unwrap();
     assert!(failure.to_string().contains("malformed worker response"));
 }
 
@@ -155,7 +161,10 @@ fn explicit_worker_error_has_sanitized_public_contract() {
             error: Some("private extension failure".to_owned()),
         })),
     );
-    let failure = process.request(&dummy_request(), Duration::from_secs(1)).err().unwrap();
+    let failure = process
+        .request(&dummy_request(), Duration::from_secs(1))
+        .err()
+        .unwrap();
     let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
     assert_eq!(typed.outcome(), ErrorOutcome::Unknown);
     assert!(!typed.to_string().contains("private"));
@@ -171,6 +180,8 @@ fn successful_worker_response_is_returned_without_retry() {
             error: None,
         })),
     );
-    let response = process.request(&dummy_request(), Duration::from_secs(1)).unwrap();
+    let response = process
+        .request(&dummy_request(), Duration::from_secs(1))
+        .unwrap();
     assert_eq!(response.result, Some(serde_json::json!({"ok":true})));
 }
