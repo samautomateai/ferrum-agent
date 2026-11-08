@@ -705,3 +705,73 @@ mod acceptance_tests {
         handle.join().unwrap();
     }
 }
+
+
+#[cfg(test)]
+mod agent_loop_regressions {
+    use super::*;
+    use clap::Parser;
+
+    fn args(workspace: &Path) -> Args {
+        let mut args = Args::parse_from(["ferrum", "--api-key", "test-key"]);
+        args.workspace = workspace.to_path_buf();
+        args
+    }
+
+    #[test]
+    fn rejects_missing_workspace_before_contacting_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = args(&dir.path().join("does-not-exist"));
+        let error = run(&args, "hello").unwrap_err().to_string();
+        assert!(error.contains("workspace not found"));
+    }
+
+    #[test]
+    fn rejects_missing_api_key_before_contacting_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut args = args(dir.path());
+        args.api_key = None;
+        let error = run(&args, "hello").unwrap_err().to_string();
+        assert!(error.contains("OPENAI_API_KEY"));
+    }
+
+    #[test]
+    fn rejects_conflicting_session_backends_without_writing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut args = args(dir.path());
+        args.session_db = Some(dir.path().join("sessions.db"));
+        args.session = Some(dir.path().join("sessions.json"));
+        assert!(run(&args, "hello").is_err());
+        assert!(!dir.path().join("sessions.db").exists());
+        assert!(!dir.path().join("sessions.json").exists());
+    }
+
+    #[test]
+    fn zero_agent_steps_rejected_without_provider_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut args = args(dir.path());
+        args.max_steps = 0;
+        let error = run(&args, "hello").unwrap_err().to_string();
+        assert!(error.contains("max_steps"));
+    }
+
+    #[test]
+    fn initial_messages_include_canonical_workspace_and_safety_contract() {
+        let dir = tempfile::tempdir().unwrap();
+        let messages = initial_messages(dir.path());
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["role"], "system");
+        let content = messages[0]["content"].as_str().unwrap();
+        assert!(content.contains(&dir.path().display().to_string()));
+        assert!(content.contains("Never claim a tool succeeded"));
+    }
+
+    #[test]
+    fn native_dispatch_does_not_bypass_write_permission() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut hosts = [];
+        let args = json!({"path":"protected.txt","content":"secret"});
+        assert!(dispatch_tool(dir.path(), false, "write_file", &args, &mut hosts).is_err());
+        assert!(!dir.path().join("protected.txt").exists());
+    }
+}
