@@ -1,5 +1,6 @@
 //! Experimental Tokio actor: not yet integrated with the synchronous worker facade.
 use crate::async_ipc::{FramedIpc, IpcError, IpcOutcome};
+use crate::worker_lifecycle::{WorkerEvent, WorkerLifecycle};
 use std::{io, path::Path, process::Stdio, time::Duration};
 use tokio::{
     process::{Child, Command},
@@ -96,19 +97,34 @@ impl WorkerSupervisor {
 }
 
 async fn actor_loop(mut child: Child, mut ipc: FramedIpc, mut receiver: mpsc::Receiver<CommandMessage>) {
+    let mut lifecycle = WorkerLifecycle::new();
+    if lifecycle.transition(WorkerEvent::Started).is_err() {
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+        return;
+    }
     while let Some(command) = receiver.recv().await {
         match command {
             CommandMessage::Exchange { payload, deadline, reply } => {
                 let result = if Instant::now() >= deadline {
                     Err(SupervisorError::NotStarted(io::ErrorKind::TimedOut))
+                } else if lifecycle.transition(WorkerEvent::RequestAccepted).is_err() {
+                    Err(SupervisorError::Closed)
                 } else {
-                    ipc.exchange(&payload, deadline).await.map_err(Into::into)
+                    let result = ipc.exchange(&payload, deadline).await.map_err(Into::into);
+                    if result.is_ok() {
+                        let _ = lifecycle.transition(WorkerEvent::RequestCompleted);
+                    } else {
+                        let _ = lifecycle.transition(WorkerEvent::Fault);
+                    }
+                    result
                 };
                 let failed = result.is_err();
                 let _ = reply.send(result);
                 if failed { break; }
             }
             CommandMessage::Shutdown { reply } => {
+                let _ = lifecycle.transition(WorkerEvent::StopRequested);
                 let _ = reply.send(());
                 break;
             }
@@ -116,4 +132,7 @@ async fn actor_loop(mut child: Child, mut ipc: FramedIpc, mut receiver: mpsc::Re
     }
     let _ = child.start_kill();
     let _ = child.wait().await;
+    if lifecycle.state() == crate::worker_lifecycle::WorkerState::Stopping {
+        let _ = lifecycle.transition(WorkerEvent::Stopped);
+    }
 }
