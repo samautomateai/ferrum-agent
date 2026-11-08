@@ -105,9 +105,6 @@ fn simulated_process(
     if let Some(reply) = response {
         reply_tx.send(reply).unwrap();
     }
-    // Keep the channel senders alive only for the configured pending state.
-    std::mem::forget(write_tx);
-    std::mem::forget(reply_tx);
     Process {
         child: Command::new(std::env::current_exe().unwrap())
             .arg("--help")
