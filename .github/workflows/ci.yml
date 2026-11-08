@@ -1,5 +1,8 @@
 name: Rust CI
 on: [push, pull_request]
+permissions:
+  contents: read
+
 jobs:
   test:
     strategy:
@@ -7,8 +10,10 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           components: rustfmt, clippy
       - run: cargo fmt --all -- --check
