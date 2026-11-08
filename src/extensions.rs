@@ -182,7 +182,9 @@ impl TrustedExtensionHost {
 
     fn settle(&mut self, name: &str) -> Result<Value> {
         for _ in 0..MAX_PROMISE_PUMPS {
-            self.context.run_jobs().context("extension promise jobs failed")?;
+            self.context
+                .run_jobs()
+                .context("extension promise jobs failed")?;
             let status = self
                 .context
                 .eval(Source::from_bytes("globalThis.__piRsInvocation.status"))
