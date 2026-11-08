@@ -5,20 +5,20 @@ use std::future::Future;
 use std::sync::OnceLock;
 use tokio::runtime::{Builder, Runtime};
 
-static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+static RUNTIME: OnceLock<Result<Runtime, String>> = OnceLock::new();
 
 pub fn runtime() -> Result<&'static Runtime> {
-    if let Some(runtime) = RUNTIME.get() {
-        return Ok(runtime);
+    match RUNTIME.get_or_init(|| {
+        Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("ferrum-supervisor")
+            .enable_all()
+            .build()
+            .map_err(|error| format!("Tokio supervisor runtime initialization failed: {error}"))
+    }) {
+        Ok(runtime) => Ok(runtime),
+        Err(error) => anyhow::bail!("{error}"),
     }
-    let created = Builder::new_multi_thread()
-        .worker_threads(2)
-        .thread_name("ferrum-supervisor")
-        .enable_all()
-        .build()
-        .context("starting Tokio supervisor runtime")?;
-    // A racing initializer drops its unused runtime; the winner remains process-owned.
-    Ok(RUNTIME.get_or_init(|| created))
 }
 
 pub fn run_sync<F: Future>(future: F) -> Result<F::Output> {
@@ -32,6 +32,15 @@ pub fn run_sync<F: Future>(future: F) -> Result<F::Output> {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn concurrent_initialization_uses_one_runtime() {
+        let handles: Vec<_> = (0..16)
+            .map(|_| std::thread::spawn(|| runtime().unwrap() as *const Runtime as usize))
+            .collect();
+        let pointers: Vec<_> = handles.into_iter().map(|handle| handle.join().unwrap()).collect();
+        assert!(pointers.iter().all(|pointer| *pointer == pointers[0]));
+    }
 
     #[test]
     fn runtime_is_shared_across_callers() {
