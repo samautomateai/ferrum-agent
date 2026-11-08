@@ -1,3 +1,71 @@
+//! Stable, sanitized runtime error contracts.
+//! Internal causes are intentionally excluded from Display.
+use std::fmt;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ErrorCode {
+    WorkerTimeout,
+    WorkerCrash,
+    SessionIo,
+}
+
+impl ErrorCode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::WorkerTimeout => "FERRUM-WORKER-TIMEOUT",
+            Self::WorkerCrash => "FERRUM-WORKER-CRASH",
+            Self::SessionIo => "FERRUM-SESSION-IO",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ErrorOutcome {
+    NotStarted,
+    Failed,
+    Succeeded,
+    Unknown,
+}
+
+#[derive(Debug)]
+pub struct RuntimeFailure {
+    code: ErrorCode,
+    outcome: ErrorOutcome,
+    public_message: &'static str,
+    internal_cause: Option<String>,
+}
+
+impl RuntimeFailure {
+    pub fn new(code: ErrorCode, outcome: ErrorOutcome, public_message: &'static str) -> Self {
+        Self { code, outcome, public_message, internal_cause: None }
+    }
+
+    pub fn with_internal_cause(mut self, cause: impl Into<String>) -> Self {
+        self.internal_cause = Some(cause.into());
+        self
+    }
+
+    pub const fn code(&self) -> &'static str {
+        self.code.as_str()
+    }
+
+    pub const fn outcome(&self) -> ErrorOutcome {
+        self.outcome
+    }
+
+    pub const fn retryable(&self) -> bool {
+        false
+    }
+}
+
+impl fmt::Display for RuntimeFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.code(), self.public_message)
+    }
+}
+
+impl std::error::Error for RuntimeFailure {}
+
 //! M3.1 red-phase contract tests. Implementation follows in a separate commit.
 #[cfg(test)]
 mod tests {
