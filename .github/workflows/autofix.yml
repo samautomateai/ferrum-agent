@@ -151,7 +151,7 @@ jobs:
       # task quality already enforces >=90% line coverage; avoid a second full instrumented build.
       - name: Generate LCOV artifact
         if: always()
-        run: cargo llvm-cov --locked --all-features --workspace --all-targets --lcov --output-path lcov.info
+        run: cargo llvm-cov report --locked --lcov --output-path lcov.info
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
