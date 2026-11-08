@@ -10,7 +10,7 @@ use std::{
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 const MAX_PROTOCOL_BYTES: usize = 2 * 1024 * 1024;
@@ -464,3 +464,35 @@ mod worker_io_contracts {
 #[cfg(test)]
 #[path = "worker_supervisor_tests.rs"]
 mod supervisor_failure_contracts;
+
+#[cfg(test)]
+mod tokio_facade_contracts {
+    use super::*;
+
+    #[test]
+    fn supervisor_error_mapping_preserves_unknown_timeout() {
+        let failure = map_supervisor_error(
+            crate::worker_supervisor::SupervisorError::Unknown(std::io::ErrorKind::TimedOut),
+        );
+        assert_eq!(failure.code(), ErrorCode::WorkerTimeout.as_str());
+        assert_eq!(failure.outcome(), ErrorOutcome::Unknown);
+        assert!(!failure.retryable());
+    }
+
+    #[test]
+    fn supervisor_error_mapping_preserves_not_started() {
+        let failure = map_supervisor_error(
+            crate::worker_supervisor::SupervisorError::NotStarted(std::io::ErrorKind::InvalidInput),
+        );
+        assert_eq!(failure.outcome(), ErrorOutcome::NotStarted);
+        assert!(!failure.retryable());
+    }
+
+    #[test]
+    fn supervisor_error_display_does_not_expose_internal_details() {
+        let failure = map_supervisor_error(
+            crate::worker_supervisor::SupervisorError::Unknown(std::io::ErrorKind::PermissionDenied),
+        );
+        assert!(!failure.to_string().contains("PermissionDenied"));
+    }
+}
