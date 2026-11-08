@@ -132,7 +132,7 @@ fn failed_worker_write_has_unknown_side_effect_outcome() {
     let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
     assert_eq!(typed.outcome(), ErrorOutcome::Unknown);
     assert!(!typed.retryable());
-    assert!(!typed.public_message().contains("secret"));
+    assert!(!typed.to_string().contains("secret"));
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn explicit_worker_error_has_sanitized_public_contract() {
     let failure = process.request(&dummy_request(), Duration::from_secs(1)).err().unwrap();
     let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
     assert_eq!(typed.outcome(), ErrorOutcome::Unknown);
-    assert!(!typed.public_message().contains("private"));
+    assert!(!typed.to_string().contains("private"));
 }
 
 #[test]
