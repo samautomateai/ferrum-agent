@@ -1,6 +1,6 @@
 //! Process-wide Tokio runtime ownership, separate from Boa worker execution.
 //! The synchronous compatibility facade must reject calls from Tokio contexts.
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use std::future::Future;
 use std::sync::OnceLock;
 use tokio::runtime::{Builder, Runtime};

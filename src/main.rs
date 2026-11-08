@@ -20,6 +20,7 @@ mod stream;
 mod supervisor_runtime;
 mod tools;
 mod worker;
+#[cfg(test)]
 mod worker_lifecycle;
 use stream::request_message;
 use tools::{execute, tool_definitions};
