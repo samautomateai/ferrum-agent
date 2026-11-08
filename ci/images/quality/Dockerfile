@@ -1,14 +1,14 @@
 # Ferrum Linux quality runner image (candidate, not yet enabled)
 # Supply a reviewed digest-pinned Linux/Go/Rust base image when building.
 # The publisher must pass --build-arg BASE_IMAGE=<image>@sha256:<digest>.
-ARG BASE_IMAGE
+ARG BASE_IMAGE=rust:1.99.1-bookworm
 FROM ${BASE_IMAGE}
 
 ARG GO_VERSION=1.27.3
 ARG GO_AMD64_SHA256=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
 ARG GO_ARM64_SHA256=a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49
 
-RUN set -euo pipefail; \
+RUN set -eu; \
     case "$(uname -m)" in \
       x86_64) go_arch=amd64; go_sha="$GO_AMD64_SHA256" ;; \
       aarch64) go_arch=arm64; go_sha="$GO_ARM64_SHA256" ;; \
@@ -29,7 +29,7 @@ ARG CARGO_AUDIT_VERSION
 ARG CARGO_DENY_VERSION
 ARG ZIZMOR_VERSION
 
-SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+SHELL ["/bin/sh", "-ec"]
 
 RUN test -n "${ACTIONLINT_VERSION}" && test -n "${TASK_VERSION}" \
  && test -n "${CARGO_AUDIT_VERSION}" && test -n "${CARGO_DENY_VERSION}" \
