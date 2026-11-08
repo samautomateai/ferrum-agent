@@ -127,7 +127,7 @@ async fn actor_loop(mut child: Child, mut ipc: FramedIpc, mut receiver: mpsc::Re
             CommandMessage::Shutdown { deadline, reply } => {
                 let _ = lifecycle.transition(WorkerEvent::StopRequested);
                 // Acknowledgement must follow the shutdown handshake, not precede it.
-                let handshake = ipc.exchange(br#"{"shutdown":true,"arguments":null}"#, deadline).await;
+                let handshake = ipc.exchange(br#"{"name":null,"arguments":null,"shutdown":true}"#, deadline).await;
                 drop(ipc);
                 let exited = timeout_at(deadline, child.wait()).await;
                 if !matches!(exited, Ok(Ok(_))) {
@@ -162,7 +162,8 @@ async fn actor_loop(mut child: Child, mut ipc: FramedIpc, mut receiver: mpsc::Re
 fn shutdown_acknowledged(response: &[u8]) -> bool {
     serde_json::from_slice::<serde_json::Value>(response)
         .ok()
-        .is_some_and(|value| value.get("error").is_none_or(serde_json::Value::is_null)
+        .is_some_and(|value| value.is_object()
+            && value.get("error").is_none_or(serde_json::Value::is_null)
             && value.get("result").is_some())
 }
 
@@ -184,6 +185,7 @@ mod tests {
         assert!(!shutdown_acknowledged(br#"{"error":"failed","result":null}"#));
         assert!(!shutdown_acknowledged(b"invalid"));
         assert!(!shutdown_acknowledged(br#"{"manifest":{}}"#));
+        assert!(!shutdown_acknowledged(br#"{"result":null,"error":true}"#));
     }
 
     #[test]
