@@ -18,6 +18,7 @@ mod sessions;
 mod stream;
 mod tools;
 mod worker;
+mod worker_lifecycle;
 use stream::request_message;
 use tools::{execute, tool_definitions};
 use worker::ExtensionWorker;
