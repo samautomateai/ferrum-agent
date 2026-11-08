@@ -91,3 +91,89 @@ fn completed_write_without_response_times_out() {
     assert_eq!(typed.code(), "FERRUM-WORKER-TIMEOUT");
     assert_eq!(typed.outcome(), ErrorOutcome::Unknown);
 }
+
+fn simulated_process(
+    write_result: Option<std::io::Result<()>>,
+    response: Option<Result<Response>>,
+) -> Process {
+    let (writes, _writer_rx) = mpsc::sync_channel(1);
+    let (write_tx, write_results) = mpsc::sync_channel(1);
+    if let Some(result) = write_result {
+        write_tx.send(result).unwrap();
+    }
+    let (reply_tx, replies) = mpsc::sync_channel(1);
+    if let Some(reply) = response {
+        reply_tx.send(reply).unwrap();
+    }
+    // Keep the channel senders alive only for the configured pending state.
+    std::mem::forget(write_tx);
+    std::mem::forget(reply_tx);
+    Process {
+        child: Command::new(std::env::current_exe().unwrap())
+            .arg("--help")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+        writes,
+        write_results,
+        replies,
+    }
+}
+
+#[test]
+fn failed_worker_write_has_unknown_side_effect_outcome() {
+    let mut process = simulated_process(
+        Some(Err(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "secret internal write failure",
+        ))),
+        None,
+    );
+    let failure = process.request(&dummy_request(), Duration::from_secs(1)).err().unwrap();
+    let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
+    assert_eq!(typed.outcome(), ErrorOutcome::Unknown);
+    assert!(!typed.retryable());
+    assert!(!typed.public_message().contains("secret"));
+}
+
+#[test]
+fn malformed_worker_response_is_not_replayed() {
+    let mut process = simulated_process(
+        Some(Ok(())),
+        Some(Err(anyhow::anyhow!("malformed worker response"))),
+    );
+    let failure = process.request(&dummy_request(), Duration::from_secs(1)).err().unwrap();
+    assert!(failure.to_string().contains("malformed worker response"));
+}
+
+#[test]
+fn explicit_worker_error_has_sanitized_public_contract() {
+    let mut process = simulated_process(
+        Some(Ok(())),
+        Some(Ok(Response {
+            manifest: None,
+            result: None,
+            error: Some("private extension failure".to_owned()),
+        })),
+    );
+    let failure = process.request(&dummy_request(), Duration::from_secs(1)).err().unwrap();
+    let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
+    assert_eq!(typed.outcome(), ErrorOutcome::Unknown);
+    assert!(!typed.public_message().contains("private"));
+}
+
+#[test]
+fn successful_worker_response_is_returned_without_retry() {
+    let mut process = simulated_process(
+        Some(Ok(())),
+        Some(Ok(Response {
+            manifest: None,
+            result: Some(serde_json::json!({"ok":true})),
+            error: None,
+        })),
+    );
+    let response = process.request(&dummy_request(), Duration::from_secs(1)).unwrap();
+    assert_eq!(response.result, Some(serde_json::json!({"ok":true})));
+}
