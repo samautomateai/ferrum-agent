@@ -119,3 +119,43 @@ async fn worker_error_response_does_not_corrupt_transport() {
         .is_ok());
     worker.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn independent_workers_exchange_concurrently_and_reap_cleanly() {
+    let first_source = extension();
+    let second_source = extension();
+    let first = WorkerSupervisor::spawn(worker_binary(), first_source.path()).unwrap();
+    let second = WorkerSupervisor::spawn(worker_binary(), second_source.path()).unwrap();
+
+    let (first_hello, second_hello) = tokio::join!(
+        first.exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline()),
+        second.exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+    );
+    for response in [first_hello.unwrap(), second_hello.unwrap()] {
+        let decoded: serde_json::Value = serde_json::from_slice(&response).unwrap();
+        assert!(decoded["manifest"].is_object());
+    }
+
+    let (first_stop, second_stop) = tokio::join!(first.shutdown(), second.shutdown());
+    first_stop.unwrap();
+    second_stop.unwrap();
+}
+
+#[tokio::test]
+async fn repeated_worker_start_exchange_and_shutdown_cycles() {
+    let source = extension();
+    for cycle in 0..5 {
+        let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+        let hello = worker
+            .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+            .await
+            .unwrap();
+        assert!(
+            serde_json::from_slice::<serde_json::Value>(&hello)
+                .unwrap()["manifest"]
+                .is_object(),
+            "missing manifest on cycle {cycle}"
+        );
+        worker.shutdown().await.unwrap();
+    }
+}
