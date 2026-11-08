@@ -120,12 +120,14 @@ impl WorkerSupervisor {
         // Preserve ownership on deadline expiry: dropping a JoinHandle detaches it.
         // The reaper owns the task until it exits, even if the caller times out.
         let mut actor = actor;
-        if timeout_at(deadline, &mut actor).await.is_err() {
-            tokio::spawn(async move { let _ = actor.await; });
-            return Err(SupervisorError::Unknown(io::ErrorKind::TimedOut));
+        match timeout_at(deadline, &mut actor).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) => return Err(SupervisorError::Closed),
+            Err(_) => {
+                tokio::spawn(async move { let _ = actor.await; });
+                return Err(SupervisorError::Unknown(io::ErrorKind::TimedOut));
+            }
         }
-        // A completed actor must not have panicked or been cancelled.
-        // The result has already been consumed by timeout_at above.
         shutdown_result
     }
 }
@@ -135,11 +137,7 @@ impl Drop for WorkerSupervisor {
         // Closing the channel lets the actor kill and reap its child on exit.
         // Keep the JoinHandle owned by a reaper rather than detaching it.
         if let Some(actor) = self.actor.take() {
-            let sender = self.sender.clone();
-            tokio::spawn(async move {
-                drop(sender);
-                let _ = actor.await;
-            });
+            tokio::spawn(async move { let _ = actor.await; });
         }
     }
 }
