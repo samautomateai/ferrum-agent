@@ -68,7 +68,10 @@ impl WorkerSupervisor {
             .ok_or(SupervisorError::NotStarted(io::ErrorKind::BrokenPipe))?;
         let (sender, receiver) = mpsc::channel(COMMAND_CAPACITY);
         let actor = tokio::spawn(actor_loop(child, FramedIpc::new(stdin, stdout), receiver));
-        Ok(Self { sender, actor: Some(actor) })
+        Ok(Self {
+            sender,
+            actor: Some(actor),
+        })
     }
 
     pub async fn exchange(
@@ -124,7 +127,9 @@ impl WorkerSupervisor {
             Ok(Ok(())) => {}
             Ok(Err(_)) => return Err(SupervisorError::Closed),
             Err(_) => {
-                tokio::spawn(async move { let _ = actor.await; });
+                tokio::spawn(async move {
+                    let _ = actor.await;
+                });
                 return Err(SupervisorError::Unknown(io::ErrorKind::TimedOut));
             }
         }
@@ -137,7 +142,9 @@ impl Drop for WorkerSupervisor {
         // Closing the channel lets the actor kill and reap its child on exit.
         // Keep the JoinHandle owned by a reaper rather than detaching it.
         if let Some(actor) = self.actor.take() {
-            tokio::spawn(async move { let _ = actor.await; });
+            tokio::spawn(async move {
+                let _ = actor.await;
+            });
         }
     }
 }
