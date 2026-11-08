@@ -1,6 +1,6 @@
 use super::*;
-use crate::tools::atomic_replace;
 use crate::error_contract::{ErrorCode, ErrorOutcome, RuntimeFailure};
+use crate::tools::atomic_replace;
 pub(super) fn save_session(path: &Path, messages: &[Value]) -> Result<()> {
     let parent = path
         .parent()
@@ -56,14 +56,22 @@ pub(super) fn save_sqlite(conn: &mut Connection, id: &str, messages: &[Value]) -
 pub(super) fn persist(args: &Args, db: &mut Option<Connection>, messages: &[Value]) -> Result<()> {
     if let Some(conn) = db {
         save_sqlite(conn, &args.session_id, messages).map_err(|error| {
-            RuntimeFailure::new(ErrorCode::SessionIo, ErrorOutcome::Failed, "session persistence failed")
-                .with_internal_cause(error.to_string())
+            RuntimeFailure::new(
+                ErrorCode::SessionIo,
+                ErrorOutcome::Failed,
+                "session persistence failed",
+            )
+            .with_internal_cause(error.to_string())
         })?;
     }
     if let Some(path) = &args.session {
         save_session(path, messages).map_err(|error| {
-            RuntimeFailure::new(ErrorCode::SessionIo, ErrorOutcome::Failed, "session persistence failed")
-                .with_internal_cause(error.to_string())
+            RuntimeFailure::new(
+                ErrorCode::SessionIo,
+                ErrorOutcome::Failed,
+                "session persistence failed",
+            )
+            .with_internal_cause(error.to_string())
         })?;
     }
     Ok(())
