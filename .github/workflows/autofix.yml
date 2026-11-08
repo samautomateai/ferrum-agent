@@ -135,7 +135,7 @@ jobs:
       - name: Mandatory quality contract
         run: task quality
   platforms:
-    needs: rustfmt
+    needs: [rustfmt, test, coverage, quality]
     strategy:
       fail-fast: false
       matrix:
