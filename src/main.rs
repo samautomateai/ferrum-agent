@@ -706,7 +706,6 @@ mod acceptance_tests {
     }
 }
 
-
 #[cfg(test)]
 mod agent_loop_regressions {
     use super::*;
