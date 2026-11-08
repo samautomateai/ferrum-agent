@@ -1,5 +1,6 @@
 //! Persistent, trusted Boa extension subprocess with framed IPC and deadlines.
 //! Process separation permits termination, but does not provide OS sandboxing.
+use crate::error_contract::{ErrorCode, ErrorOutcome, RuntimeFailure};
 use crate::extensions::{ExtensionManifest, TrustedExtensionHost};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -78,7 +79,11 @@ impl Process {
     fn request(&mut self, request: &Request, timeout: Duration) -> Result<Response> {
         let mut encoded = serde_json::to_vec(request)?;
         if encoded.len() > MAX_PROTOCOL_BYTES {
-            bail!("worker request too large");
+            return Err(RuntimeFailure::new(
+                ErrorCode::WorkerCrash,
+                ErrorOutcome::NotStarted,
+                "worker request too large",
+            ).into());
         }
         encoded.push(b'\n');
         self.stdin
@@ -88,9 +93,20 @@ impl Process {
         let response = self
             .replies
             .recv_timeout(timeout)
-            .map_err(|error| anyhow::anyhow!("extension worker deadline/disconnect: {error}"))??;
+            .map_err(|error| {
+                let code = match error {
+                    mpsc::RecvTimeoutError::Timeout => ErrorCode::WorkerTimeout,
+                    mpsc::RecvTimeoutError::Disconnected => ErrorCode::WorkerCrash,
+                };
+                RuntimeFailure::new(code, ErrorOutcome::Unknown, "worker did not complete")
+                    .with_internal_cause(error.to_string())
+            })??;
         if let Some(error) = response.error.as_ref() {
-            bail!("extension worker: {error}");
+            return Err(RuntimeFailure::new(
+                ErrorCode::WorkerCrash,
+                ErrorOutcome::Unknown,
+                "extension worker reported an error",
+            ).with_internal_cause(error.clone()).into());
         }
         Ok(response)
     }
@@ -174,7 +190,11 @@ impl ExtensionWorker {
 
     pub fn invoke(&mut self, name: &str, arguments: &Value) -> Result<Value> {
         if !self.manifest.tools.iter().any(|tool| tool == name) {
-            bail!("unknown extension tool: {name}");
+            return Err(RuntimeFailure::new(
+                ErrorCode::WorkerCrash,
+                ErrorOutcome::NotStarted,
+                "unknown extension tool",
+            ).into());
         }
         let request = Request {
             name: Some(name.to_owned()),
