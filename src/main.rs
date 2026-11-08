@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+mod error_contract;
 mod edit;
 mod extensions;
 mod git_tools;
