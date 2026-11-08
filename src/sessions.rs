@@ -247,7 +247,7 @@ mod typed_persistence_failure_tests {
     fn sqlite_persistence_failure_has_safe_error_contract() {
         let dir = tempfile::tempdir().unwrap();
         let mut args = Args::parse_from(["ferrum", "--api-key", "test"]);
-        let mut conn = open_store(&dir.path().join("state.db")).unwrap();
+        let conn = open_store(&dir.path().join("state.db")).unwrap();
         conn.execute_batch("DROP TABLE messages").unwrap();
         args.session_db = Some(dir.path().join("state.db"));
         let mut db = Some(conn);
