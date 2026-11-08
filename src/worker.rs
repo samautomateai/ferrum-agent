@@ -9,10 +9,10 @@ use std::{
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{Child, ChildStdin, Command, Stdio},
-    sync::mpsc::{self, Receiver},
+    process::{Child, Command, Stdio},
+    sync::mpsc::{self, Receiver, SyncSender},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const MAX_PROTOCOL_BYTES: usize = 2 * 1024 * 1024;
@@ -36,7 +36,8 @@ struct Response {
 
 struct Process {
     child: Child,
-    stdin: ChildStdin,
+    writes: SyncSender<Vec<u8>>,
+    write_results: Receiver<std::io::Result<()>>,
     replies: Receiver<Result<Response>>,
 }
 
@@ -58,6 +59,18 @@ impl Process {
             ).with_internal_cause(error.to_string()))?;
         let stdin = child.stdin.take().context("worker stdin unavailable")?;
         let stdout = child.stdout.take().context("worker stdout unavailable")?;
+        let (write_tx, writes) = mpsc::sync_channel::<Vec<u8>>(1);
+        let (write_result_tx, write_results) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            let mut stdin = stdin;
+            while let Ok(frame) = writes.recv() {
+                let result = stdin.write_all(&frame).and_then(|_| stdin.flush());
+                let failed = result.is_err();
+                if write_result_tx.send(result).is_err() || failed {
+                    break;
+                }
+            }
+        });
         let (tx, replies) = mpsc::sync_channel(1);
         thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
@@ -75,7 +88,8 @@ impl Process {
         });
         Ok(Self {
             child,
-            stdin,
+            writes: write_tx,
+            write_results,
             replies,
         })
     }
@@ -90,21 +104,35 @@ impl Process {
             ).into());
         }
         encoded.push(b'\n');
-        self.stdin
-            .write_all(&encoded)
-            .context("writing worker request")?;
-        self.stdin.flush()?;
-        let response = self
-            .replies
-            .recv_timeout(timeout)
-            .map_err(|error| {
-                let code = match error {
-                    mpsc::RecvTimeoutError::Timeout => ErrorCode::WorkerTimeout,
-                    mpsc::RecvTimeoutError::Disconnected => ErrorCode::WorkerCrash,
-                };
-                RuntimeFailure::new(code, ErrorOutcome::Unknown, "worker did not complete")
-                    .with_internal_cause(error.to_string())
-            })??;
+        let deadline = Instant::now() + timeout;
+        self.writes.try_send(encoded).map_err(|error| {
+            RuntimeFailure::new(
+                ErrorCode::WorkerCrash,
+                ErrorOutcome::NotStarted,
+                "worker writer unavailable",
+            ).with_internal_cause(error.to_string())
+        })?;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let write_result = self.write_results.recv_timeout(remaining).map_err(|error| {
+            let code = match error {
+                mpsc::RecvTimeoutError::Timeout => ErrorCode::WorkerTimeout,
+                mpsc::RecvTimeoutError::Disconnected => ErrorCode::WorkerCrash,
+            };
+            RuntimeFailure::new(code, ErrorOutcome::Unknown, "worker write did not complete")
+        })?;
+        write_result.map_err(|error| {
+            RuntimeFailure::new(ErrorCode::WorkerCrash, ErrorOutcome::Unknown, "worker write failed")
+                .with_internal_cause(error.to_string())
+        })?;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let response = self.replies.recv_timeout(remaining).map_err(|error| {
+            let code = match error {
+                mpsc::RecvTimeoutError::Timeout => ErrorCode::WorkerTimeout,
+                mpsc::RecvTimeoutError::Disconnected => ErrorCode::WorkerCrash,
+            };
+            RuntimeFailure::new(code, ErrorOutcome::Unknown, "worker did not complete")
+                .with_internal_cause(error.to_string())
+        })??;
         if let Some(error) = response.error.as_ref() {
             return Err(RuntimeFailure::new(
                 ErrorCode::WorkerCrash,
