@@ -26,7 +26,6 @@ pub enum ErrorOutcome {
     Unknown,
 }
 
-#[derive(Debug)]
 pub struct RuntimeFailure {
     code: ErrorCode,
     outcome: ErrorOutcome,
@@ -59,6 +58,16 @@ impl RuntimeFailure {
 
     pub const fn retryable(&self) -> bool {
         false
+    }
+}
+
+impl fmt::Debug for RuntimeFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RuntimeFailure")
+            .field("code", &self.code)
+            .field("outcome", &self.outcome)
+            .field("public_message", &self.public_message)
+            .finish_non_exhaustive()
     }
 }
 
@@ -107,6 +116,7 @@ mod tests {
         )
         .with_internal_cause("authorization token: secret-canary-123");
         assert!(!failure.to_string().contains("secret-canary-123"));
+        assert!(!format!("{failure:?}").contains("secret-canary-123"));
         assert_eq!(
             failure.to_string(),
             "FERRUM-SESSION-IO: session storage failed (outcome=Failed, retryable=false)"
