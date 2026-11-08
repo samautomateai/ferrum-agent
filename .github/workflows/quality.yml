@@ -21,7 +21,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: rust-quality-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.sha }}
+          key: rust-quality-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             rust-quality-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
             rust-quality-${{ runner.os }}-${{ runner.arch }}-
@@ -82,7 +82,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: rust-platforms-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.sha }}
+          key: rust-platforms-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             rust-platforms-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
             rust-platforms-${{ runner.os }}-${{ runner.arch }}-
