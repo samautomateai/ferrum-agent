@@ -217,4 +217,102 @@ mod full_agent_loop_contracts {
             .to_string()
             .contains("invalid session JSON"));
     }
+
+    #[test]
+    fn resumes_json_session_and_appends_new_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("history.json");
+        save_session(&session, &[json!({"role":"system","content":"original"})]).unwrap();
+        let (endpoint, handle) = server(vec![json!({"role":"assistant","content":"done"})]);
+        let mut config = args(dir.path(), &endpoint);
+        config.session = Some(session.clone());
+        run(&config, "next").unwrap();
+        handle.join().unwrap();
+        let history: Vec<Value> = serde_json::from_slice(&fs::read(session).unwrap()).unwrap();
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0]["content"], "original");
+        assert_eq!(history[1]["content"], "next");
+        assert_eq!(history[2]["content"], "done");
+    }
+
+    #[test]
+    fn executes_allowed_file_write_then_reads_new_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let (endpoint, handle) = server(vec![
+            json!({"role":"assistant","content":null,"tool_calls":[
+                tool_call("write", "write_file", r#"{"path":"new.txt","content":"created"}"#),
+                tool_call("read", "read_file", r#"{"path":"new.txt"}"#)
+            ]}),
+            json!({"role":"assistant","content":"done"}),
+        ]);
+        let mut config = args(dir.path(), &endpoint);
+        config.allow_write = true;
+        config.session_db = Some(dir.path().join("state.db"));
+        run(&config, "create").unwrap();
+        handle.join().unwrap();
+        assert_eq!(fs::read_to_string(dir.path().join("new.txt")).unwrap(), "created");
+        let db = open_store(config.session_db.as_ref().unwrap()).unwrap();
+        let messages = load_sqlite(&db, "default").unwrap();
+        assert_eq!(messages.len(), 6);
+        assert_eq!(messages[3]["content"], "written");
+        assert_eq!(messages[4]["content"], "created");
+    }
+
+    #[test]
+    fn missing_function_arguments_default_to_empty_object() {
+        let dir = tempfile::tempdir().unwrap();
+        let (endpoint, handle) = server(vec![
+            json!({"role":"assistant","content":null,"tool_calls":[
+                {"id":"missing-args","type":"function","function":{"name":"read_file"}}
+            ]}),
+            json!({"role":"assistant","content":"done"}),
+        ]);
+        let mut config = args(dir.path(), &endpoint);
+        config.session_db = Some(dir.path().join("state.db"));
+        run(&config, "inspect").unwrap();
+        handle.join().unwrap();
+        let db = open_store(config.session_db.as_ref().unwrap()).unwrap();
+        let messages = load_sqlite(&db, "default").unwrap();
+        assert_eq!(messages.len(), 5);
+        assert!(messages[3]["content"].as_str().unwrap().starts_with("ERROR:"));
+    }
+
+    #[test]
+    fn empty_assistant_content_completes_without_tool_calls() {
+        let dir = tempfile::tempdir().unwrap();
+        let (endpoint, handle) = server(vec![
+            json!({"role":"assistant","content":null}),
+        ]);
+        let mut config = args(dir.path(), &endpoint);
+        config.session_db = Some(dir.path().join("state.db"));
+        run(&config, "empty").unwrap();
+        handle.join().unwrap();
+        let db = open_store(config.session_db.as_ref().unwrap()).unwrap();
+        let messages = load_sqlite(&db, "default").unwrap();
+        assert_eq!(messages.len(), 3);
+        assert!(messages[2]["content"].is_null());
+    }
+
+    #[test]
+    fn rejected_tool_call_is_not_replayed_when_step_limit_is_reached() {
+        let dir = tempfile::tempdir().unwrap();
+        let (endpoint, handle) = server(vec![
+            json!({"role":"assistant","content":null,"tool_calls":[
+                tool_call("one", "write_file", r#"{"path":"protected","content":"secret"}"#),
+                tool_call("two", "write_file", r#"{"path":"protected","content":"secret"}"#)
+            ]}),
+        ]);
+        let mut config = args(dir.path(), &endpoint);
+        config.max_steps = 1;
+        config.session_db = Some(dir.path().join("state.db"));
+        assert!(run(&config, "attempt").is_err());
+        handle.join().unwrap();
+        assert!(!dir.path().join("protected").exists());
+        let db = open_store(config.session_db.as_ref().unwrap()).unwrap();
+        let messages = load_sqlite(&db, "default").unwrap();
+        assert_eq!(messages.len(), 5);
+        assert!(messages[3]["content"].as_str().unwrap().starts_with("ERROR:"));
+        assert!(messages[4]["content"].as_str().unwrap().starts_with("ERROR:"));
+    }
+
 }
