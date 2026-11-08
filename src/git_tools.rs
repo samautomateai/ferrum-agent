@@ -155,21 +155,29 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod git_contract_regressions {
     use super::*;
     use std::process::Command;
 
     fn git(root: &Path, args: &[&str]) {
-        assert!(Command::new("git").arg("-C").arg(root).args(args).status().unwrap().success());
+        assert!(Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .status()
+            .unwrap()
+            .success());
     }
 
     fn repository() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         git(dir.path(), &["init", "-q"]);
         git(dir.path(), &["config", "user.name", "Ferrum Test"]);
-        git(dir.path(), &["config", "user.email", "ferrum@example.invalid"]);
+        git(
+            dir.path(),
+            &["config", "user.email", "ferrum@example.invalid"],
+        );
         std::fs::write(dir.path().join("tracked.txt"), "first\n").unwrap();
         git(dir.path(), &["add", "tracked.txt"]);
         git(dir.path(), &["commit", "-qm", "initial"]);
@@ -208,13 +216,24 @@ mod git_contract_regressions {
 
     #[test]
     fn git_path_validation_rejects_option_and_traversal_forms() {
-        for value in ["", "-p", "../secret", "a/../../secret", "/etc/passwd",
-            "C:\\Windows", "\\\\server\\share", "a\0b"] {
+        for value in [
+            "",
+            "-p",
+            "../secret",
+            "a/../../secret",
+            "/etc/passwd",
+            "C:\\Windows",
+            "\\\\server\\share",
+            "a\0b",
+        ] {
             assert!(path_argument(&json!({"path":value})).is_err(), "{value:?}");
         }
         assert!(path_argument(&json!({"path":null})).is_err());
         assert_eq!(path_argument(&json!({})).unwrap(), None);
-        assert_eq!(path_argument(&json!({"path":"src/main.rs"})).unwrap(), Some("src/main.rs"));
+        assert_eq!(
+            path_argument(&json!({"path":"src/main.rs"})).unwrap(),
+            Some("src/main.rs")
+        );
     }
 
     #[test]

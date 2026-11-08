@@ -116,7 +116,6 @@ mod persistence_regressions {
     }
 }
 
-
 #[cfg(test)]
 mod sqlite_integrity_contracts {
     use super::*;
@@ -146,8 +145,9 @@ mod sqlite_integrity_contracts {
         db.execute_batch(
             "CREATE TRIGGER reject_new_message BEFORE INSERT ON messages
              WHEN NEW.payload LIKE '%blocked%'
-             BEGIN SELECT RAISE(ABORT, 'injected transaction failure'); END;"
-        ).unwrap();
+             BEGIN SELECT RAISE(ABORT, 'injected transaction failure'); END;",
+        )
+        .unwrap();
         let attempt = vec![json!({"role":"assistant","content":"blocked"})];
         assert!(save_sqlite(&mut db, "one", &attempt).is_err());
         assert_eq!(load_sqlite(&db, "one").unwrap(), original);
@@ -160,12 +160,15 @@ mod sqlite_integrity_contracts {
     fn foreign_key_rejects_orphans_and_cascade_removes_messages() {
         let dir = tempfile::tempdir().unwrap();
         let mut db = open_store(&dir.path().join("state.db")).unwrap();
-        assert!(db.execute(
-            "INSERT INTO messages(session_id,ordinal,payload) VALUES('missing',0,'{}')",
-            []
-        ).is_err());
+        assert!(db
+            .execute(
+                "INSERT INTO messages(session_id,ordinal,payload) VALUES('missing',0,'{}')",
+                []
+            )
+            .is_err());
         save_sqlite(&mut db, "one", &[json!({"role":"user"})]).unwrap();
-        db.execute("DELETE FROM sessions WHERE id='one'", []).unwrap();
+        db.execute("DELETE FROM sessions WHERE id='one'", [])
+            .unwrap();
         assert!(load_sqlite(&db, "one").unwrap().is_empty());
     }
 
@@ -176,8 +179,9 @@ mod sqlite_integrity_contracts {
         save_sqlite(&mut db, "one", &[json!({"role":"user"})]).unwrap();
         db.execute(
             "UPDATE messages SET payload='not valid JSON' WHERE session_id='one'",
-            []
-        ).unwrap();
+            [],
+        )
+        .unwrap();
         assert!(load_sqlite(&db, "one").is_err());
     }
 
@@ -190,9 +194,8 @@ mod sqlite_integrity_contracts {
         let mut db = None;
         let messages = vec![json!({"role":"user","content":"file"})];
         persist(&args, &mut db, &messages).unwrap();
-        let stored: Vec<Value> = serde_json::from_slice(
-            &fs::read(args.session.as_ref().unwrap()).unwrap()
-        ).unwrap();
+        let stored: Vec<Value> =
+            serde_json::from_slice(&fs::read(args.session.as_ref().unwrap()).unwrap()).unwrap();
         assert_eq!(stored, messages);
 
         args.session = None;
@@ -200,7 +203,8 @@ mod sqlite_integrity_contracts {
         db = Some(open_store(args.session_db.as_ref().unwrap()).unwrap());
         persist(&args, &mut db, &messages).unwrap();
         assert_eq!(
-            load_sqlite(db.as_ref().unwrap(), "persistent").unwrap(), messages
+            load_sqlite(db.as_ref().unwrap(), "persistent").unwrap(),
+            messages
         );
     }
 }
