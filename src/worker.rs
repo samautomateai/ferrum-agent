@@ -239,7 +239,7 @@ fn worker_entry_io<R: BufRead, W: Write>(
     let script = fs::read_to_string(source).context("reading extension source")?;
     let mut host = TrustedExtensionHost::load(&script)?;
     loop {
-        let Some(frame) = read_frame(&mut input)? else {
+        let Some(frame) = read_frame(input)? else {
             break;
         };
         let request: Request = serde_json::from_slice(&frame)?;
@@ -386,12 +386,12 @@ mod worker_io_contracts {
 
     fn exchange(source: &Path, requests: &[Value]) -> Result<Vec<Value>> {
         let input = requests.iter().map(|request| {
-            format!("{}\\n", serde_json::to_string(request).unwrap())
+            format!("{}\n", serde_json::to_string(request).unwrap())
         }).collect::<String>();
         let mut reader = Cursor::new(input.into_bytes());
         let mut output = Vec::new();
         worker_entry_io(source, &mut reader, &mut output)?;
-        output.split(|byte| *byte == b'\\n')
+        output.split(|byte| *byte == b'\n')
             .filter(|line| !line.is_empty())
             .map(|line| serde_json::from_slice(line).map_err(Into::into))
             .collect()
@@ -420,7 +420,7 @@ mod worker_io_contracts {
     fn worker_io_eof_and_invalid_json_are_handled() {
         let source = script();
         assert!(exchange(source.path(), &[]).unwrap().is_empty());
-        let mut reader = Cursor::new(b"{invalid}\\n".to_vec());
+        let mut reader = Cursor::new(b"{invalid}\n".to_vec());
         assert!(worker_entry_io(source.path(), &mut reader, &mut Vec::new()).is_err());
     }
 
@@ -436,10 +436,10 @@ mod worker_io_contracts {
     #[test]
     fn worker_io_rejects_truncated_and_oversized_input() {
         let source = script();
-        let mut truncated = Cursor::new(b"{\\\"name\\\":null".to_vec());
+        let mut truncated = Cursor::new(b"{\"name\":null".to_vec());
         assert!(worker_entry_io(source.path(), &mut truncated, &mut Vec::new()).is_err());
         let mut oversized = vec![b'x'; MAX_PROTOCOL_BYTES + 2];
-        oversized.push(b'\\n');
+        oversized.push(b'\n');
         assert!(worker_entry_io(
             source.path(), &mut Cursor::new(oversized), &mut Vec::new()
         ).is_err());
