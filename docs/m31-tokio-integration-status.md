@@ -13,3 +13,11 @@ Outstanding blockers:
 - Add real subprocess fault-injection tests and validate 90% coverage.
 - Compile, format, clippy, audit, and test on Linux amd64/arm64 and Windows amd64.
 - Do not auto-replay any request whose side effects might have occurred.
+
+## Shutdown contract follow-up
+
+Shutdown now propagates the handshake/reaping result rather than unconditionally
+acknowledging success. A response must be valid JSON with a result field and
+no protocol error; child exit must succeed. On timeout the actor attempts to
+kill and reap the direct child. Caller cancellation, process-tree containment,
+full lifecycle integration and real subprocess tests remain unverified.

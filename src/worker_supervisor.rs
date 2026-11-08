@@ -34,7 +34,7 @@ enum CommandMessage {
         deadline: Instant,
         reply: oneshot::Sender<Result<Vec<u8>, SupervisorError>>,
     },
-    Shutdown { reply: oneshot::Sender<()> },
+    Shutdown { reply: oneshot::Sender<Result<(), SupervisorError>> },
 }
 
 pub struct WorkerSupervisor {
@@ -84,7 +84,7 @@ impl WorkerSupervisor {
             .await
             .map_err(|_| SupervisorError::Unknown(io::ErrorKind::TimedOut))?
             .map_err(|_| SupervisorError::Closed)?;
-        timeout_at(deadline, response)
+        let shutdown_result = timeout_at(deadline, response)
             .await
             .map_err(|_| SupervisorError::Unknown(io::ErrorKind::TimedOut))?
             .map_err(|_| SupervisorError::Closed)?;
@@ -92,7 +92,7 @@ impl WorkerSupervisor {
             .await
             .map_err(|_| SupervisorError::Unknown(io::ErrorKind::TimedOut))?
             .map_err(|_| SupervisorError::Closed)?;
-        Ok(())
+        shutdown_result
     }
 }
 
@@ -134,12 +134,19 @@ async fn actor_loop(mut child: Child, mut ipc: FramedIpc, mut receiver: mpsc::Re
                     let _ = child.start_kill();
                     let _ = child.wait().await;
                 }
-                if handshake.is_ok() && matches!(exited, Ok(Ok(_))) {
-                    let _ = lifecycle.transition(WorkerEvent::Stopped);
-                } else {
+                let result = match (handshake, exited) {
+                    (Ok(response), Ok(Ok(status))) if status.success() && shutdown_acknowledged(&response) => {
+                        let _ = lifecycle.transition(WorkerEvent::Stopped);
+                        Ok(())
+                    }
+                    (Err(error), _) => Err(SupervisorError::from(error)),
+                    (_, Err(_)) => Err(SupervisorError::Unknown(io::ErrorKind::TimedOut)),
+                    _ => Err(SupervisorError::Unknown(io::ErrorKind::InvalidData)),
+                };
+                if result.is_err() {
                     let _ = lifecycle.transition(WorkerEvent::Fault);
                 }
-                let _ = reply.send(());
+                let _ = reply.send(result);
                 return;
             }
         }
@@ -148,5 +155,43 @@ async fn actor_loop(mut child: Child, mut ipc: FramedIpc, mut receiver: mpsc::Re
     let _ = child.wait().await;
     if lifecycle.state() == crate::worker_lifecycle::WorkerState::Stopping {
         let _ = lifecycle.transition(WorkerEvent::Stopped);
+    }
+}
+
+fn shutdown_acknowledged(response: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(response)
+        .ok()
+        .is_some_and(|value| value.get("error").is_none_or(serde_json::Value::is_null)
+            && value.get("result").is_some())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shutdown_ack_requires_valid_response() {
+        assert!(shutdown_acknowledged(br#"{"result":null,"error":null}"#));
+        assert!(!shutdown_acknowledged(br#"{"error":"failed","result":null}"#));
+        assert!(!shutdown_acknowledged(b"invalid"));
+        assert!(!shutdown_acknowledged(br#"{"manifest":{}}"#));
+    }
+
+    #[test]
+    fn ipc_errors_preserve_side_effect_uncertainty() {
+        assert!(matches!(
+            SupervisorError::from(IpcError {
+                outcome: IpcOutcome::Unknown,
+                kind: io::ErrorKind::TimedOut,
+            }),
+            SupervisorError::Unknown(io::ErrorKind::TimedOut)
+        ));
+        assert!(matches!(
+            SupervisorError::from(IpcError {
+                outcome: IpcOutcome::NotStarted,
+                kind: io::ErrorKind::InvalidInput,
+            }),
+            SupervisorError::NotStarted(io::ErrorKind::InvalidInput)
+        ));
     }
 }
