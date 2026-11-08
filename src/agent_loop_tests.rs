@@ -58,7 +58,10 @@ mod full_agent_loop_contracts {
                 assert!(payload["messages"].is_array());
                 let body = json!({"choices":[{"message":response}]}).to_string();
                 write!(stream,
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    concat!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n",
+                        "Content-Length: {}\r\nConnection: close\r\n\r\n{}"
+                    ),
                     body.len(), body
                 ).unwrap();
                 stream.flush().unwrap();

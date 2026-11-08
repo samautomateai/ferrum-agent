@@ -232,7 +232,10 @@ mod http_contract_tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let response = format!(
-            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            concat!(
+                "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\n",
+                "Content-Length: {}\r\nConnection: close\r\n\r\n{body}"
+            ),
             body.len()
         );
         let handle = thread::spawn(move || {
