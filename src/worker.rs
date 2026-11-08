@@ -52,11 +52,14 @@ impl Process {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|error| RuntimeFailure::new(
-                ErrorCode::WorkerCrash,
-                ErrorOutcome::Failed,
-                "unable to start extension worker",
-            ).with_internal_cause(error.to_string()))?;
+            .map_err(|error| {
+                RuntimeFailure::new(
+                    ErrorCode::WorkerCrash,
+                    ErrorOutcome::Failed,
+                    "unable to start extension worker",
+                )
+                .with_internal_cause(error.to_string())
+            })?;
         let stdin = child.stdin.take().context("worker stdin unavailable")?;
         let stdout = child.stdout.take().context("worker stdout unavailable")?;
         let (write_tx, writes) = mpsc::sync_channel::<Vec<u8>>(1);
@@ -101,7 +104,8 @@ impl Process {
                 ErrorCode::WorkerCrash,
                 ErrorOutcome::NotStarted,
                 "worker request too large",
-            ).into());
+            )
+            .into());
         }
         encoded.push(b'\n');
         let deadline = Instant::now() + timeout;
@@ -110,16 +114,20 @@ impl Process {
                 ErrorCode::WorkerCrash,
                 ErrorOutcome::NotStarted,
                 "worker writer unavailable",
-            ).with_internal_cause(error.to_string())
+            )
+            .with_internal_cause(error.to_string())
         })?;
         let remaining = deadline.saturating_duration_since(Instant::now());
-        let write_result = self.write_results.recv_timeout(remaining).map_err(|error| {
-            let code = match error {
-                mpsc::RecvTimeoutError::Timeout => ErrorCode::WorkerTimeout,
-                mpsc::RecvTimeoutError::Disconnected => ErrorCode::WorkerCrash,
-            };
-            RuntimeFailure::new(code, ErrorOutcome::Unknown, "worker write did not complete")
-        })?;
+        let write_result = self
+            .write_results
+            .recv_timeout(remaining)
+            .map_err(|error| {
+                let code = match error {
+                    mpsc::RecvTimeoutError::Timeout => ErrorCode::WorkerTimeout,
+                    mpsc::RecvTimeoutError::Disconnected => ErrorCode::WorkerCrash,
+                };
+                RuntimeFailure::new(code, ErrorOutcome::Unknown, "worker write did not complete")
+            })?;
         write_result.map_err(|error| {
             RuntimeFailure::new(ErrorCode::WorkerCrash, ErrorOutcome::Unknown, "worker write failed")
                 .with_internal_cause(error.to_string())
@@ -138,7 +146,9 @@ impl Process {
                 ErrorCode::WorkerCrash,
                 ErrorOutcome::Unknown,
                 "extension worker reported an error",
-            ).with_internal_cause(error.clone()).into());
+            )
+            .with_internal_cause(error.clone())
+            .into());
         }
         Ok(response)
     }
@@ -226,7 +236,8 @@ impl ExtensionWorker {
                 ErrorCode::WorkerCrash,
                 ErrorOutcome::NotStarted,
                 "unknown extension tool",
-            ).into());
+            )
+            .into());
         }
         let request = Request {
             name: Some(name.to_owned()),
