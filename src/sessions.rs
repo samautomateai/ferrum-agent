@@ -223,3 +223,39 @@ mod sqlite_integrity_contracts {
         );
     }
 }
+
+#[cfg(test)]
+mod typed_persistence_failure_tests {
+    use super::*;
+    use crate::error_contract::{ErrorOutcome, RuntimeFailure};
+
+    #[test]
+    fn json_persistence_failure_has_safe_error_contract() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut args = Args::parse_from(["ferrum", "--api-key", "test"]);
+        args.session = Some(dir.path().to_path_buf());
+        let mut db = None;
+        let failure = persist(&args, &mut db, &[json!({"secret":"canary"})]).unwrap_err();
+        let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
+        assert_eq!(typed.code(), "FERRUM-SESSION-IO");
+        assert_eq!(typed.outcome(), ErrorOutcome::Failed);
+        assert!(!typed.retryable());
+        assert!(!failure.to_string().contains("canary"));
+    }
+
+    #[test]
+    fn sqlite_persistence_failure_has_safe_error_contract() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut args = Args::parse_from(["ferrum", "--api-key", "test"]);
+        let mut conn = open_store(&dir.path().join("state.db")).unwrap();
+        conn.execute_batch("DROP TABLE messages").unwrap();
+        args.session_db = Some(dir.path().join("state.db"));
+        let mut db = Some(conn);
+        let failure = persist(&args, &mut db, &[json!({"secret":"canary"})]).unwrap_err();
+        let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
+        assert_eq!(typed.code(), "FERRUM-SESSION-IO");
+        assert_eq!(typed.outcome(), ErrorOutcome::Failed);
+        assert!(!typed.retryable());
+        assert!(!format!("{typed:?}").contains("canary"));
+    }
+}
