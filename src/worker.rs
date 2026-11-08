@@ -224,7 +224,20 @@ fn read_frame<R: BufRead>(reader: &mut R) -> Result<Option<Vec<u8>>> {
     }
 }
 
+const WORKER_STACK_BYTES: usize = 8 * 1024 * 1024;
+
 pub fn worker_entry(source: &Path) -> Result<()> {
+    let source = source.to_path_buf();
+    thread::Builder::new()
+        .name("ferrum-extension-runtime".to_owned())
+        .stack_size(WORKER_STACK_BYTES)
+        .spawn(move || worker_runtime(&source))
+        .context("starting extension runtime thread")?
+        .join()
+        .map_err(|_| anyhow::anyhow!("extension runtime thread panicked"))?
+}
+
+fn worker_runtime(source: &Path) -> Result<()> {
     let stdin = std::io::stdin();
     let mut input = BufReader::new(stdin.lock());
     let mut stdout = std::io::stdout().lock();
