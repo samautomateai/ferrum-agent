@@ -203,3 +203,21 @@ async fn cancelled_queued_caller_does_not_poison_healthy_worker() {
     assert!(serde_json::from_slice::<serde_json::Value>(&reply).is_ok());
     worker.shutdown().await.unwrap();
 }
+
+#[test]
+fn supervisor_drop_outside_async_context_does_not_panic() {
+    let source = extension();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let worker = runtime.block_on(async {
+        WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap()
+    });
+    // A synchronous facade drops the supervisor without an entered Tokio context.
+    // The supervisor must use its captured runtime handle for cleanup.
+    drop(worker);
+    runtime.block_on(async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    });
+}
