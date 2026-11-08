@@ -225,11 +225,19 @@ fn read_frame<R: BufRead>(reader: &mut R) -> Result<Option<Vec<u8>>> {
 }
 
 pub fn worker_entry(source: &Path) -> Result<()> {
-    let script = fs::read_to_string(source).context("reading extension source")?;
-    let mut host = TrustedExtensionHost::load(&script)?;
     let stdin = std::io::stdin();
     let mut input = BufReader::new(stdin.lock());
     let mut stdout = std::io::stdout().lock();
+    worker_entry_io(source, &mut input, &mut stdout)
+}
+
+fn worker_entry_io<R: BufRead, W: Write>(
+    source: &Path,
+    input: &mut R,
+    stdout: &mut W,
+) -> Result<()> {
+    let script = fs::read_to_string(source).context("reading extension source")?;
+    let mut host = TrustedExtensionHost::load(&script)?;
     loop {
         let Some(frame) = read_frame(&mut input)? else {
             break;
@@ -358,5 +366,82 @@ mod frame_regressions {
             ExtensionWorker::load(&dir.path().join("absent.js"), Duration::from_millis(100))
                 .is_err()
         );
+    }
+}
+
+
+#[cfg(test)]
+mod worker_io_contracts {
+    use super::*;
+    use std::io::Cursor;
+
+    fn script() -> tempfile::NamedTempFile {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        fs::write(
+            file.path(),
+            "pi.registerTool({name:'echo',execute:(args)=>args});",
+        ).unwrap();
+        file
+    }
+
+    fn exchange(source: &Path, requests: &[Value]) -> Result<Vec<Value>> {
+        let input = requests.iter().map(|request| {
+            format!("{}\\n", serde_json::to_string(request).unwrap())
+        }).collect::<String>();
+        let mut reader = Cursor::new(input.into_bytes());
+        let mut output = Vec::new();
+        worker_entry_io(source, &mut reader, &mut output)?;
+        output.split(|byte| *byte == b'\\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice(line).map_err(Into::into))
+            .collect()
+    }
+
+    #[test]
+    fn worker_io_manifest_invoke_error_event_and_shutdown() {
+        let source = script();
+        let responses = exchange(source.path(), &[
+            serde_json::json!({"name":null,"arguments":null}),
+            serde_json::json!({"name":"echo","arguments":{"message":"hello"}}),
+            serde_json::json!({"name":"missing","arguments":{}}),
+            serde_json::json!({"name":null,"arguments":{},"event":"custom"}),
+            serde_json::json!({"name":null,"arguments":null,"shutdown":true}),
+            serde_json::json!({"name":"echo","arguments":{"ignored":true}}),
+        ]).unwrap();
+        assert_eq!(responses.len(), 5);
+        assert!(responses[0]["manifest"].is_object());
+        assert_eq!(responses[1]["result"]["message"], "hello");
+        assert!(responses[2]["error"].is_string());
+        assert!(responses[3]["error"].is_null());
+        assert!(responses[4]["result"].is_null());
+    }
+
+    #[test]
+    fn worker_io_eof_and_invalid_json_are_handled() {
+        let source = script();
+        assert!(exchange(source.path(), &[]).unwrap().is_empty());
+        let mut reader = Cursor::new(b"{invalid}\\n".to_vec());
+        assert!(worker_entry_io(source.path(), &mut reader, &mut Vec::new()).is_err());
+    }
+
+    #[test]
+    fn worker_io_rejects_missing_script_and_invalid_js() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(exchange(&dir.path().join("missing.js"), &[]).is_err());
+        let source = tempfile::NamedTempFile::new().unwrap();
+        fs::write(source.path(), "this is not valid javascript !").unwrap();
+        assert!(exchange(source.path(), &[]).is_err());
+    }
+
+    #[test]
+    fn worker_io_rejects_truncated_and_oversized_input() {
+        let source = script();
+        let mut truncated = Cursor::new(b"{\\\"name\\\":null".to_vec());
+        assert!(worker_entry_io(source.path(), &mut truncated, &mut Vec::new()).is_err());
+        let mut oversized = vec![b'x'; MAX_PROTOCOL_BYTES + 2];
+        oversized.push(b'\\n');
+        assert!(worker_entry_io(
+            source.path(), &mut Cursor::new(oversized), &mut Vec::new()
+        ).is_err());
     }
 }
