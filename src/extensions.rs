@@ -184,7 +184,7 @@ impl TrustedExtensionHost {
         for _ in 0..MAX_PROMISE_PUMPS {
             self.context
                 .run_jobs()
-                .context("extension promise jobs failed")?;
+                .map_err(|error| anyhow::anyhow!("extension promise jobs failed: {error}"))?;
             let status = self
                 .context
                 .eval(Source::from_bytes("globalThis.__piRsInvocation.status"))
