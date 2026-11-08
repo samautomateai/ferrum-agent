@@ -5,7 +5,10 @@ use sha2::{Digest, Sha256};
 pub(crate) const MAX_EDIT_BYTES: usize = 1024 * 1024;
 
 pub(crate) fn digest(bytes: &[u8]) -> String {
-    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 pub(crate) fn replace_once(
