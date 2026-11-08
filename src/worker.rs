@@ -9,8 +9,6 @@ use std::{
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
-    sync::mpsc::{self, Receiver, SyncSender},
     thread,
     time::{Duration, Instant},
 };
@@ -34,139 +32,78 @@ struct Response {
     error: Option<String>,
 }
 
+// Synchronous compatibility facade over the process-wide Tokio supervisor.
+// The shared runtime owns all async tasks; no per-worker runtime is created.
 struct Process {
-    child: Child,
-    writes: SyncSender<Vec<u8>>,
-    write_results: Receiver<std::io::Result<()>>,
-    replies: Receiver<Result<Response>>,
+    supervisor: Option<crate::worker_supervisor::WorkerSupervisor>,
 }
 
 impl Process {
     fn start(source: &Path) -> Result<Self> {
         let exe = std::env::current_exe().context("locating worker executable")?;
-        let mut child = Command::new(exe)
-            .arg("--extension-worker")
-            .arg("--worker-source")
-            .arg(source)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|error| {
-                RuntimeFailure::new(
-                    ErrorCode::WorkerCrash,
-                    ErrorOutcome::Failed,
-                    "unable to start extension worker",
-                )
-                .with_internal_cause(error.to_string())
-            })?;
-        let stdin = child.stdin.take().context("worker stdin unavailable")?;
-        let stdout = child.stdout.take().context("worker stdout unavailable")?;
-        let (write_tx, writes) = mpsc::sync_channel::<Vec<u8>>(1);
-        let (write_result_tx, write_results) = mpsc::sync_channel(1);
-        thread::spawn(move || {
-            let mut stdin = stdin;
-            while let Ok(frame) = writes.recv() {
-                let result = stdin.write_all(&frame).and_then(|_| stdin.flush());
-                let failed = result.is_err();
-                if write_result_tx.send(result).is_err() || failed {
-                    break;
-                }
-            }
-        });
-        let (tx, replies) = mpsc::sync_channel(1);
-        thread::spawn(move || {
-            let mut reader = BufReader::new(stdout);
-            loop {
-                let result = read_frame(&mut reader)
-                    .and_then(|frame| frame.context("worker closed connection"))
-                    .and_then(|frame| {
-                        serde_json::from_slice(&frame).context("invalid worker response")
-                    });
-                let fatal = result.is_err();
-                if tx.send(result).is_err() || fatal {
-                    break;
-                }
-            }
-        });
-        Ok(Self {
-            child,
-            writes: write_tx,
-            write_results,
-            replies,
-        })
+        let supervisor = crate::supervisor_runtime::run_sync(async {
+            crate::worker_supervisor::WorkerSupervisor::spawn(&exe, source)
+        })??;
+        Ok(Self { supervisor: Some(supervisor) })
     }
 
     fn request(&mut self, request: &Request, timeout: Duration) -> Result<Response> {
-        let mut encoded = serde_json::to_vec(request)?;
+        let encoded = serde_json::to_vec(request)?;
         if encoded.len() > MAX_PROTOCOL_BYTES {
             return Err(RuntimeFailure::new(
                 ErrorCode::WorkerCrash,
                 ErrorOutcome::NotStarted,
                 "worker request too large",
-            )
-            .into());
+            ).into());
         }
-        encoded.push(b'\n');
-        let deadline = Instant::now() + timeout;
-        self.writes.try_send(encoded).map_err(|error| {
-            RuntimeFailure::new(
-                ErrorCode::WorkerCrash,
-                ErrorOutcome::NotStarted,
-                "worker writer unavailable",
-            )
-            .with_internal_cause(error.to_string())
+        let supervisor = self.supervisor.as_ref().context("worker stopped")?;
+        let reply = crate::supervisor_runtime::run_sync(supervisor.exchange(
+            encoded,
+            tokio::time::Instant::now() + timeout,
+        ))?
+        .map_err(map_supervisor_error)?;
+        let response: Response = serde_json::from_slice(&reply).map_err(|error| {
+            RuntimeFailure::new(ErrorCode::WorkerCrash, ErrorOutcome::Unknown,
+                "invalid worker response").with_internal_cause(error.to_string())
         })?;
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let write_result = self
-            .write_results
-            .recv_timeout(remaining)
-            .map_err(|error| {
-                let code = match error {
-                    mpsc::RecvTimeoutError::Timeout => ErrorCode::WorkerTimeout,
-                    mpsc::RecvTimeoutError::Disconnected => ErrorCode::WorkerCrash,
-                };
-                RuntimeFailure::new(code, ErrorOutcome::Unknown, "worker write did not complete")
-            })?;
-        write_result.map_err(|error| {
-            RuntimeFailure::new(
-                ErrorCode::WorkerCrash,
-                ErrorOutcome::Unknown,
-                "worker write failed",
-            )
-            .with_internal_cause(error.to_string())
-        })?;
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let response = self.replies.recv_timeout(remaining).map_err(|error| {
-            let code = match error {
-                mpsc::RecvTimeoutError::Timeout => ErrorCode::WorkerTimeout,
-                mpsc::RecvTimeoutError::Disconnected => ErrorCode::WorkerCrash,
-            };
-            RuntimeFailure::new(code, ErrorOutcome::Unknown, "worker did not complete")
-                .with_internal_cause(error.to_string())
-        })??;
         if let Some(error) = response.error.as_ref() {
             return Err(RuntimeFailure::new(
-                ErrorCode::WorkerCrash,
-                ErrorOutcome::Unknown,
+                ErrorCode::WorkerCrash, ErrorOutcome::Unknown,
                 "extension worker reported an error",
-            )
-            .with_internal_cause(error.clone())
-            .into());
+            ).with_internal_cause(error.clone()).into());
         }
         Ok(response)
     }
 
     fn stop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        // Dropping closes the command sender; the owned actor kills and reaps its child.
+        self.supervisor.take();
+    }
+
+    fn shutdown(&mut self) -> Result<()> {
+        if let Some(supervisor) = self.supervisor.take() {
+            crate::supervisor_runtime::run_sync(supervisor.shutdown())?
+                .map_err(map_supervisor_error)?;
+        }
+        Ok(())
     }
 }
 
+fn map_supervisor_error(error: crate::worker_supervisor::SupervisorError) -> RuntimeFailure {
+    use crate::worker_supervisor::SupervisorError;
+    let (code, outcome, message) = match error {
+        SupervisorError::NotStarted(_) => (
+            ErrorCode::WorkerCrash, ErrorOutcome::NotStarted, "worker request not started"),
+        SupervisorError::Unknown(std::io::ErrorKind::TimedOut) => (
+            ErrorCode::WorkerTimeout, ErrorOutcome::Unknown, "worker deadline exceeded"),
+        SupervisorError::Unknown(_) | SupervisorError::Closed => (
+            ErrorCode::WorkerCrash, ErrorOutcome::Unknown, "worker connection failed"),
+    };
+    RuntimeFailure::new(code, outcome, message)
+}
+
 impl Drop for Process {
-    fn drop(&mut self) {
-        self.stop();
-    }
+    fn drop(&mut self) { self.stop(); }
 }
 
 pub struct ExtensionWorker {
@@ -221,15 +158,7 @@ impl ExtensionWorker {
     #[allow(dead_code)] // Reserved for explicit graceful worker shutdown.
     pub fn shutdown(&mut self) -> Result<()> {
         if let Some(mut process) = self.process.take() {
-            let request = Request {
-                name: None,
-                arguments: Value::Null,
-                event: None,
-                shutdown: true,
-            };
-            let result = process.request(&request, self.timeout).map(|_| ());
-            process.stop();
-            return result;
+            return process.shutdown();
         }
         Ok(())
     }
