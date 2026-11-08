@@ -38,7 +38,10 @@ mod tests {
         let handles: Vec<_> = (0..16)
             .map(|_| std::thread::spawn(|| runtime().unwrap() as *const Runtime as usize))
             .collect();
-        let pointers: Vec<_> = handles.into_iter().map(|handle| handle.join().unwrap()).collect();
+        let pointers: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
         assert!(pointers.iter().all(|pointer| *pointer == pointers[0]));
     }
 

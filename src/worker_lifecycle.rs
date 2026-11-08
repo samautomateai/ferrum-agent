@@ -88,11 +88,26 @@ mod tests {
     fn handshake_invoke_shutdown_happy_path() {
         let mut lifecycle = WorkerLifecycle::new();
         assert_eq!(lifecycle.state(), WorkerState::Starting);
-        assert_eq!(lifecycle.transition(WorkerEvent::Started), Ok(WorkerState::Ready));
-        assert_eq!(lifecycle.transition(WorkerEvent::RequestAccepted), Ok(WorkerState::Busy));
-        assert_eq!(lifecycle.transition(WorkerEvent::RequestCompleted), Ok(WorkerState::Ready));
-        assert_eq!(lifecycle.transition(WorkerEvent::StopRequested), Ok(WorkerState::Stopping));
-        assert_eq!(lifecycle.transition(WorkerEvent::Stopped), Ok(WorkerState::Stopped));
+        assert_eq!(
+            lifecycle.transition(WorkerEvent::Started),
+            Ok(WorkerState::Ready)
+        );
+        assert_eq!(
+            lifecycle.transition(WorkerEvent::RequestAccepted),
+            Ok(WorkerState::Busy)
+        );
+        assert_eq!(
+            lifecycle.transition(WorkerEvent::RequestCompleted),
+            Ok(WorkerState::Ready)
+        );
+        assert_eq!(
+            lifecycle.transition(WorkerEvent::StopRequested),
+            Ok(WorkerState::Stopping)
+        );
+        assert_eq!(
+            lifecycle.transition(WorkerEvent::Stopped),
+            Ok(WorkerState::Stopped)
+        );
     }
 
     #[test]
@@ -137,6 +152,9 @@ mod tests {
         lifecycle.transition(WorkerEvent::RequestAccepted).unwrap();
         lifecycle.transition(WorkerEvent::StopRequested).unwrap();
         assert!(lifecycle.transition(WorkerEvent::RequestCompleted).is_err());
-        assert_eq!(lifecycle.transition(WorkerEvent::Stopped), Ok(WorkerState::Stopped));
+        assert_eq!(
+            lifecycle.transition(WorkerEvent::Stopped),
+            Ok(WorkerState::Stopped)
+        );
     }
 }
