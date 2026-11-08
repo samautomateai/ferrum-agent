@@ -329,7 +329,11 @@ mod http_contract_tests {
         let multiline = |event: Value| {
             let serialized = event.to_string();
             let split = serialized.find("\"delta\"").unwrap();
-            format!("data: {}\ndata: {}\n\n", &serialized[..split], &serialized[split..])
+            format!(
+                "data: {}\ndata: {}\n\n",
+                &serialized[..split],
+                &serialized[split..]
+            )
         };
         // SSE data lines must join with a newline; split at a JSON whitespace boundary.
         let first = multiline(first);
@@ -339,7 +343,10 @@ mod http_contract_tests {
         let result = call(&url, true).unwrap();
         assert_eq!(result["tool_calls"][0]["id"], "call_1");
         assert_eq!(result["tool_calls"][0]["function"]["name"], "read_file");
-        assert_eq!(result["tool_calls"][0]["function"]["arguments"], r#"{"path":"a.txt"}"#);
+        assert_eq!(
+            result["tool_calls"][0]["function"]["arguments"],
+            r#"{"path":"a.txt"}"#
+        );
         handle.join().unwrap();
     }
 
