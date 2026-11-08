@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+mod async_ipc;
 mod edit;
 mod error_contract;
 mod extensions;
@@ -16,8 +17,10 @@ mod git_tools;
 mod search;
 mod sessions;
 mod stream;
-#[allow(dead_code)] // Tokio supervisor bridge is integrated in the next implementation slice.
+
 mod supervisor_runtime;
+mod worker_lifecycle;
+mod worker_supervisor;
 mod tools;
 mod worker;
 use stream::request_message;
