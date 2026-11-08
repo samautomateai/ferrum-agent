@@ -12,7 +12,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy, llvm-tools-preview
-      # Cache installed Rust quality tools to avoid GitHub Releases on every run.
+      # Install directly from crates.io: GitHub release downloads repeatedly return 504.
+      # Cache the resulting binaries for subsequent CI runs.
       - name: Restore Rust quality tools
         id: rust-tools-cache
         uses: actions/cache@v4
@@ -22,41 +23,16 @@ jobs:
             ~/.cargo/bin/cargo-audit
             ~/.cargo/bin/cargo-deny
             ~/.cargo/bin/zizmor
-          key: quality-rust-tools-v1-${{ runner.os }}-${{ runner.arch }}-llvmcov-0.9.1
-      - name: Install cargo-llvm-cov binary
-        id: llvm-cov-install
+          key: quality-rust-tools-source-v1-${{ runner.os }}-${{ runner.arch }}
+      - name: Install Rust quality tools from crates.io
         if: steps.rust-tools-cache.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Fallback cargo-llvm-cov from crates.io
-        if: steps.rust-tools-cache.outputs.cache-hit != 'true' && steps.llvm-cov-install.outcome == 'failure'
-        run: cargo install --locked cargo-llvm-cov --version 0.9.1
-      - name: Install cargo-audit binary
-        id: audit-install
-        if: steps.rust-tools-cache.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: taiki-e/install-action@cargo-audit
-      - name: Fallback cargo-audit from crates.io
-        if: steps.rust-tools-cache.outputs.cache-hit != 'true' && steps.audit-install.outcome == 'failure'
-        run: cargo install --locked cargo-audit
-      - name: Install cargo-deny binary
-        id: deny-install
-        if: steps.rust-tools-cache.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: taiki-e/install-action@cargo-deny
-      - name: Fallback cargo-deny from crates.io
-        if: steps.rust-tools-cache.outputs.cache-hit != 'true' && steps.deny-install.outcome == 'failure'
-        run: cargo install --locked cargo-deny
+        run: |
+          cargo install --locked cargo-llvm-cov --version 0.9.1
+          cargo install --locked cargo-audit
+          cargo install --locked cargo-deny
+          cargo install --locked zizmor
       - name: Install actionlint
         run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
-      - name: Install zizmor binary
-        id: zizmor-install
-        if: steps.rust-tools-cache.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: taiki-e/install-action@zizmor
-      - name: Fallback zizmor from crates.io
-        if: steps.rust-tools-cache.outputs.cache-hit != 'true' && steps.zizmor-install.outcome == 'failure'
-        run: cargo install --locked zizmor
       - name: Install Task
         run: go install github.com/go-task/task/v3/cmd/task@latest
       - name: Install Gitleaks CLI
