@@ -54,3 +54,56 @@ Fault-injection suite, performance baseline/regression budgets, end-to-end multi
 - Automatic replay of side-effecting tools.
 - Remote telemetry collection enabled by default.
 - Rewriting the agent architecture or adding new Pi/OMP API parity in M3.
+
+## M3.0 technical review — baseline observations (2026-11-08)
+Source-reviewed against `src/worker.rs`, `src/extensions.rs`, `src/main.rs`, and existing M1.4–M1.6 OpenSpec. These are **design findings**, not evidence of a runtime defect or test execution.
+
+1. `worker.rs` has a 2 MiB IPC frame cap, per-request `recv_timeout`, and `Child::kill/wait`. It does **not** currently establish Windows Job Objects, Linux process-group ownership, CPU/RSS limits, or bounded lifetime of any grandchildren. The stdout reader is a detached thread; lifecycle ownership needs an explicit contract.
+2. Worker `stderr` is discarded. A crash can therefore lose the most useful diagnostic evidence; M3 must capture a bounded stderr ring without mixing it into stdout protocol.
+3. A `recv_timeout` does not necessarily bound a blocking `stdin.write_all/flush`; M3.1 must account for end-to-end deadlines, not only reply wait.
+4. `main.rs` uses `anyhow` for operational errors and a blocking HTTP client with a 180-second timeout. Cancellation and typed failure classification are not yet end-to-end.
+5. `extensions.rs` caps source (256 KiB), argument/result (1 MiB), and Promise pumps (32). These are valuable existing soft limits, but **not** heap or CPU isolation. M3 must preserve them while adding enforceable worker limits where supported.
+6. README contains historical unverified-build statements despite M2 CI having passed. Documentation cleanup should be tracked separately from reliability functionality.
+
+## Proposed decisions for review (not yet frozen)
+| ID | Decision | Initial policy |
+|---|---|---|
+| D1 | Error model | Stable `FERRUM-<DOMAIN>-<CODE>` public codes; internal source chains retained locally but sanitized at CLI boundary; explicit `retryable` and `outcome_unknown` fields |
+| D2 | Supervisor | One parent-owned supervisor; per-worker cancellation and process-tree ownership; no automatic side-effect replay |
+| D3 | Limits | Preserve current 2 MiB IPC and 1 MiB JS result caps; configurable budgets validated at startup; defaults and hard enforcement documented per platform |
+| D4 | Worker isolation | Windows Job Object with kill-on-close; Linux process group for cleanup; cgroups v2 where delegated for hard memory limits, otherwise clearly mark as unenforced |
+| D5 | Logging | `tracing` JSON/human output, stderr by default; opt-in file sink with restrictive permissions and bounded rotation; no prompt/response body logging |
+| D6 | Crash evidence | Sanitized metadata on by default; full-memory dump off by default; Windows minidump and Linux core capture treated as platform integration, not portable in-process promises |
+| D7 | Telemetry | Local counters and duration histograms first; OpenTelemetry export disabled by default; stable low-cardinality dimensions, no prompt/session IDs as metric labels |
+| D8 | Session safety | SQLite transactions and WAL retained; explicit `unknown_outcome` state after interrupted side effects; JSON export uses temp-file + rename with documented fsync/Windows limitations |
+| D9 | Retry policy | Only explicitly idempotent network requests may retry with exponential backoff/jitter and bounded attempt/time budget; never replay extension writes |
+| D10 | Support bundles | Explicit CLI opt-in; archive allowlist, size and retention caps, canary secret tests; no full dumps included unless separately authorized |
+
+## Implementation dependency order
+`typed errors + redaction contract` → `supervisor + cancellation + child ownership` → `bounded diagnostics + tracing` → `session recovery + crash metadata` → `opt-in dumps + symbol pipeline` → `fault injection and release gates`.
+
+Do not build dump generation before the data-handling and redaction policies are reviewed.
+
+## TDD verification matrix
+| Failure injected | Required observable outcome | Platform |
+|---|---|---|
+| Worker exits nonzero mid-request | Parent remains alive; stable error code; tool outcome marked unknown when side effects possible | All |
+| Worker spawns grandchild then times out | Owned process tree terminated and reaped; no orphan left | Linux amd64/arm64, Windows amd64 |
+| Worker stdout frame exceeds 2 MiB | Protocol rejection, bounded memory, worker cleanup | All |
+| Worker stderr floods | Bounded ring and no deadlock | All |
+| Stalled stdin write | Overall deadline enforced, worker terminated | All |
+| SIGINT / Windows console interrupt | Graceful cancellation then bounded forced shutdown | Linux/Windows |
+| Crash during SQLite transaction | Previous committed state readable; no fabricated success | All |
+| Disk full during diagnostic write | Core agent remains operational where possible; explicit diagnostic failure | All |
+| Secret canary in prompt/env/tool output | Absent from logs, diagnostic metadata and default support bundle | All |
+| OOM / memory budget exceeded | Parent survives worker resource failure **where OS-enforced**; otherwise limitation documented | OS-dependent |
+| User does not enable dumps | No Ferrum-triggered full-memory dump; OS dump settings remain independent | All |
+| LLM 429 / timeout | Retry only when policy allows; bounded attempts and clear final error | All |
+
+## Review exit criteria for M3.0
+- Every D1–D10 decision approved or revised with rationale.
+- Numeric default budgets and supported override behavior explicitly defined.
+- Per-OS capability and privilege matrix documented; no blanket hard-memory-safety claim.
+- Telemetry event schema and redaction threat model reviewed.
+- Acceptance tests mapped to M3.1–M3.4 and CI platforms.
+- OpenSpec and ADR updated to **Accepted** before production implementation.
