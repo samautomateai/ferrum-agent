@@ -387,3 +387,6 @@ mod tests {
 #[cfg(test)]
 #[path = "agent_tests.rs"]
 mod agent_tests;
+#[cfg(test)]
+#[path = "agent_loop_tests.rs"]
+mod agent_loop_tests;
