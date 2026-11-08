@@ -88,49 +88,6 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --all
 
-  coverage:
-    needs: rustfmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ needs.rustfmt.outputs.validated_sha }}
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
-        with:
-          components: llvm-tools-preview
-      - name: Cache Rust dependencies and compilation (coverage)
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: rust-coverage-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            rust-coverage-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
-            rust-coverage-${{ runner.os }}-${{ runner.arch }}-
-      # Install from crates.io instead of relying on GitHub Releases (504 errors).
-      - name: Cache cargo-llvm-cov
-        id: llvm-cov-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
-        with:
-          path: ~/.cargo/bin/cargo-llvm-cov
-          key: coverage-llvmcov-0.9.1-${{ runner.os }}-${{ runner.arch }}
-      - name: Install cargo-llvm-cov
-        if: steps.llvm-cov-cache.outputs.cache-hit != 'true'
-        run: cargo install --locked cargo-llvm-cov --version 0.9.1
-      - name: Test and enforce line coverage >= 90%
-        run: cargo llvm-cov --locked --all-features --workspace --all-targets --fail-under-lines 90 --summary-only
-      - name: Generate LCOV artifact
-        if: always()
-        run: cargo llvm-cov --locked --all-features --workspace --all-targets --lcov --output-path lcov.info
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: rust-lcov
-          path: lcov.info
-
   quality:
     needs: rustfmt
     runs-on: ubuntu-latest
@@ -191,8 +148,18 @@ jobs:
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Mandatory quality contract
         run: task quality
+      # task quality already enforces >=90% line coverage; avoid a second full instrumented build.
+      - name: Generate LCOV artifact
+        if: always()
+        run: cargo llvm-cov --locked --all-features --workspace --all-targets --lcov --output-path lcov.info
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rust-lcov
+          path: lcov.info
+          if-no-files-found: ignore
   platforms:
-    needs: [rustfmt, test, coverage, quality]
+    needs: [rustfmt, test, quality]
     strategy:
       fail-fast: false
       matrix:
