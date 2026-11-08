@@ -51,7 +51,11 @@ impl Process {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .context("spawning extension worker")?;
+            .map_err(|error| RuntimeFailure::new(
+                ErrorCode::WorkerCrash,
+                ErrorOutcome::Failed,
+                "unable to start extension worker",
+            ).with_internal_cause(error.to_string()))?;
         let stdin = child.stdin.take().context("worker stdin unavailable")?;
         let stdout = child.stdout.take().context("worker stdout unavailable")?;
         let (tx, replies) = mpsc::sync_channel(1);
