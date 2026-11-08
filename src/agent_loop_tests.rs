@@ -4,7 +4,11 @@ use super::*;
 mod full_agent_loop_contracts {
     use super::*;
     use clap::Parser;
-    use std::{io::{Read, Write}, net::TcpListener, thread};
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
 
     fn args(root: &Path, endpoint: &str) -> Args {
         let mut args = Args::parse_from(["ferrum", "--api-key", "test-key"]);
@@ -20,7 +24,9 @@ mod full_agent_loop_contracts {
         let handle = thread::spawn(move || {
             for response in responses {
                 let (mut stream, _) = listener.accept().unwrap();
-                stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
                 let mut bytes = Vec::new();
                 let mut buf = [0u8; 4096];
                 let header_end = loop {
@@ -33,19 +39,21 @@ mod full_agent_loop_contracts {
                 };
                 let headers = String::from_utf8_lossy(&bytes[..header_end]);
                 assert!(headers.starts_with("POST /v1/chat/completions HTTP/1.1"));
-                let length = headers.lines().find_map(|line| {
-                    let (key, value) = line.split_once(':')?;
-                    key.eq_ignore_ascii_case("content-length")
-                        .then(|| value.trim().parse::<usize>().unwrap())
-                }).unwrap();
+                let length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (key, value) = line.split_once(':')?;
+                        key.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().unwrap())
+                    })
+                    .unwrap();
                 while bytes.len() - header_end < length {
                     let n = stream.read(&mut buf).unwrap();
                     assert!(n > 0);
                     bytes.extend_from_slice(&buf[..n]);
                 }
-                let payload: Value = serde_json::from_slice(
-                    &bytes[header_end..header_end + length]
-                ).unwrap();
+                let payload: Value =
+                    serde_json::from_slice(&bytes[header_end..header_end + length]).unwrap();
                 assert_eq!(payload["stream"], false);
                 assert!(payload["messages"].is_array());
                 let body = json!({"choices":[{"message":response}]}).to_string();
@@ -67,9 +75,7 @@ mod full_agent_loop_contracts {
     #[test]
     fn agent_roundtrip_persists_assistant_and_user_in_sqlite() {
         let dir = tempfile::tempdir().unwrap();
-        let (endpoint, handle) = server(vec![
-            json!({"role":"assistant","content":"completed"}),
-        ]);
+        let (endpoint, handle) = server(vec![json!({"role":"assistant","content":"completed"})]);
         let mut config = args(dir.path(), &endpoint);
         let path = dir.path().join("nested").join("history.db");
         config.session_db = Some(path.clone());
@@ -99,9 +105,8 @@ mod full_agent_loop_contracts {
         run(&config, "inspect").unwrap();
         handle.join().unwrap();
         assert!(!dir.path().join("blocked.txt").exists());
-        let messages: Vec<Value> = serde_json::from_slice(
-            &fs::read(config.session.unwrap()).unwrap()
-        ).unwrap();
+        let messages: Vec<Value> =
+            serde_json::from_slice(&fs::read(config.session.unwrap()).unwrap()).unwrap();
         assert_eq!(messages.len(), 6);
         assert_eq!(messages[3]["content"], "visible");
         assert!(messages[4]["content"].as_str().unwrap().contains("ERROR:"));
@@ -125,8 +130,14 @@ mod full_agent_loop_contracts {
         let db = open_store(config.session_db.as_ref().unwrap()).unwrap();
         let messages = load_sqlite(&db, "default").unwrap();
         assert_eq!(messages.len(), 6);
-        assert!(messages[3]["content"].as_str().unwrap().starts_with("ERROR:"));
-        assert!(messages[4]["content"].as_str().unwrap().starts_with("ERROR:"));
+        assert!(messages[3]["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("ERROR:"));
+        assert!(messages[4]["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("ERROR:"));
         assert_eq!(messages[5]["content"], "recovered");
     }
 
@@ -175,7 +186,12 @@ mod full_agent_loop_contracts {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("state.db");
         let mut db = open_store(&db_path).unwrap();
-        save_sqlite(&mut db, "default", &[json!({"role":"system","content":"prior"})]).unwrap();
+        save_sqlite(
+            &mut db,
+            "default",
+            &[json!({"role":"system","content":"prior"})],
+        )
+        .unwrap();
         drop(db);
         let (endpoint, handle) = server(vec![json!({"role":"assistant","content":"next"})]);
         let mut config = args(dir.path(), &endpoint);
@@ -196,6 +212,9 @@ mod full_agent_loop_contracts {
         fs::write(&path, "not-json").unwrap();
         let mut config = args(dir.path(), "http://127.0.0.1:1/v1");
         config.session = Some(path);
-        assert!(run(&config, "prompt").unwrap_err().to_string().contains("invalid session JSON"));
+        assert!(run(&config, "prompt")
+            .unwrap_err()
+            .to_string()
+            .contains("invalid session JSON"));
     }
 }
