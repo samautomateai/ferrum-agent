@@ -145,6 +145,23 @@ jobs:
         run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
       - name: Add Go CLI tools to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      # sccache uses GitHub Actions cache storage for compiler outputs.
+      # Keep instrumented coverage artifacts isolated from ordinary Rust builds.
+      - name: Cache sccache executable
+        id: sccache-bin-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ~/.cargo/bin/sccache
+          key: sccache-0.12.0-${{ runner.os }}-${{ runner.arch }}
+      - name: Install sccache
+        if: steps.sccache-bin-cache.outputs.cache-hit != 'true'
+        run: cargo install --locked sccache --version 0.12.0
+      - name: Enable compiler caching for quality
+        shell: bash
+        run: |
+          echo "RUSTC_WRAPPER=$(command -v sccache)" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_VERSION=ferrum-coverage-v1" >> "$GITHUB_ENV"
       - name: Record quality build start
         id: quality-start
         shell: bash
@@ -174,6 +191,14 @@ jobs:
             echo 'Note: an exact cache miss may still restore from a prefix; inspect cache restore logs for partial hits.'
           } >> "$GITHUB_STEP_SUMMARY"
       # task quality already enforces >=90% line coverage; avoid a second full instrumented build.
+      - name: Compiler cache statistics (quality)
+        if: always()
+        shell: bash
+        run: |
+          if command -v sccache >/dev/null 2>&1; then
+            sccache --show-stats || true
+            sccache --stop-server || true
+          fi
       - name: Generate LCOV artifact
         if: always()
         run: cargo llvm-cov report --locked --lcov --output-path lcov.info
