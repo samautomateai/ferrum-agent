@@ -34,7 +34,7 @@ enum CommandMessage {
         deadline: Instant,
         reply: oneshot::Sender<Result<Vec<u8>, SupervisorError>>,
     },
-    Shutdown { reply: oneshot::Sender<Result<(), SupervisorError>> },
+    Shutdown { deadline: Instant, reply: oneshot::Sender<Result<(), SupervisorError>> },
 }
 
 pub struct WorkerSupervisor {
@@ -80,7 +80,7 @@ impl WorkerSupervisor {
     pub async fn shutdown(self) -> Result<(), SupervisorError> {
         let (reply, response) = oneshot::channel();
         let deadline = Instant::now() + SHUTDOWN_GRACE;
-        timeout_at(deadline, self.sender.send(CommandMessage::Shutdown { reply }))
+        timeout_at(deadline, self.sender.send(CommandMessage::Shutdown { deadline, reply }))
             .await
             .map_err(|_| SupervisorError::Unknown(io::ErrorKind::TimedOut))?
             .map_err(|_| SupervisorError::Closed)?;
@@ -106,7 +106,7 @@ async fn actor_loop(mut child: Child, mut ipc: FramedIpc, mut receiver: mpsc::Re
     while let Some(command) = receiver.recv().await {
         match command {
             CommandMessage::Exchange { payload, deadline, reply } => {
-                let result = if Instant::now() >= deadline {
+                let result = if reply.is_closed() || Instant::now() >= deadline {
                     Err(SupervisorError::NotStarted(io::ErrorKind::TimedOut))
                 } else if lifecycle.transition(WorkerEvent::RequestAccepted).is_err() {
                     Err(SupervisorError::Closed)
@@ -119,19 +119,20 @@ async fn actor_loop(mut child: Child, mut ipc: FramedIpc, mut receiver: mpsc::Re
                     }
                     result
                 };
+                // A caller that abandons an in-flight request cannot trigger replay.
                 let failed = result.is_err();
                 let _ = reply.send(result);
                 if failed { break; }
             }
-            CommandMessage::Shutdown { reply } => {
+            CommandMessage::Shutdown { deadline, reply } => {
                 let _ = lifecycle.transition(WorkerEvent::StopRequested);
                 // Acknowledgement must follow the shutdown handshake, not precede it.
-                let deadline = Instant::now() + SHUTDOWN_GRACE;
                 let handshake = ipc.exchange(br#"{"shutdown":true,"arguments":null}"#, deadline).await;
                 drop(ipc);
                 let exited = timeout_at(deadline, child.wait()).await;
                 if !matches!(exited, Ok(Ok(_))) {
                     let _ = child.start_kill();
+                    // Reap on the actor task; the caller deadline is not extended.
                     let _ = child.wait().await;
                 }
                 let result = match (handshake, exited) {
@@ -168,6 +169,14 @@ fn shutdown_acknowledged(response: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dropped_reply_is_detected_before_dispatch() {
+        let (reply, receiver) = oneshot::channel::<Result<Vec<u8>, SupervisorError>>();
+        assert!(!reply.is_closed());
+        drop(receiver);
+        assert!(reply.is_closed());
+    }
 
     #[test]
     fn shutdown_ack_requires_valid_response() {
