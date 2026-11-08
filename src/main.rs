@@ -19,6 +19,8 @@ mod stream;
 mod tools;
 mod worker;
 mod worker_lifecycle;
+#[allow(dead_code)] // Tokio supervisor bridge is integrated in the next implementation slice.
+mod supervisor_runtime;
 use stream::request_message;
 use tools::{execute, tool_definitions};
 use worker::ExtensionWorker;
