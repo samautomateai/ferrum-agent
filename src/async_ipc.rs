@@ -55,7 +55,7 @@ impl FramedIpc {
             }
             let count = available.iter().position(|b| *b == b'\n')
                 .map_or(available.len(), |i| i + 1);
-            if count > MAX_FRAME + 1 - frame.len() {
+            if frame.len().saturating_add(count) > MAX_FRAME + 1 {
                 return Err(error(IpcOutcome::Unknown, io::ErrorKind::InvalidData));
             }
             let complete = available[count - 1] == b'\n';
@@ -63,7 +63,13 @@ impl FramedIpc {
             self.stdout.consume(count);
             if complete {
                 frame.pop();
+                if frame.len() > MAX_FRAME {
+                    return Err(error(IpcOutcome::Unknown, io::ErrorKind::InvalidData));
+                }
                 return Ok(frame);
+            }
+            if frame.len() >= MAX_FRAME + 1 {
+                return Err(error(IpcOutcome::Unknown, io::ErrorKind::InvalidData));
             }
         }
     }
