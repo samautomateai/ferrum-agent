@@ -369,7 +369,6 @@ mod frame_regressions {
     }
 }
 
-
 #[cfg(test)]
 mod worker_io_contracts {
     use super::*;
@@ -380,18 +379,21 @@ mod worker_io_contracts {
         fs::write(
             file.path(),
             "pi.registerTool({name:'echo',execute:(args)=>args});",
-        ).unwrap();
+        )
+        .unwrap();
         file
     }
 
     fn exchange(source: &Path, requests: &[Value]) -> Result<Vec<Value>> {
-        let input = requests.iter().map(|request| {
-            format!("{}\n", serde_json::to_string(request).unwrap())
-        }).collect::<String>();
+        let input = requests
+            .iter()
+            .map(|request| format!("{}\n", serde_json::to_string(request).unwrap()))
+            .collect::<String>();
         let mut reader = Cursor::new(input.into_bytes());
         let mut output = Vec::new();
         worker_entry_io(source, &mut reader, &mut output)?;
-        output.split(|byte| *byte == b'\n')
+        output
+            .split(|byte| *byte == b'\n')
             .filter(|line| !line.is_empty())
             .map(|line| serde_json::from_slice(line).map_err(Into::into))
             .collect()
@@ -400,14 +402,18 @@ mod worker_io_contracts {
     #[test]
     fn worker_io_manifest_invoke_error_event_and_shutdown() {
         let source = script();
-        let responses = exchange(source.path(), &[
-            serde_json::json!({"name":null,"arguments":null}),
-            serde_json::json!({"name":"echo","arguments":{"message":"hello"}}),
-            serde_json::json!({"name":"missing","arguments":{}}),
-            serde_json::json!({"name":null,"arguments":{},"event":"custom"}),
-            serde_json::json!({"name":null,"arguments":null,"shutdown":true}),
-            serde_json::json!({"name":"echo","arguments":{"ignored":true}}),
-        ]).unwrap();
+        let responses = exchange(
+            source.path(),
+            &[
+                serde_json::json!({"name":null,"arguments":null}),
+                serde_json::json!({"name":"echo","arguments":{"message":"hello"}}),
+                serde_json::json!({"name":"missing","arguments":{}}),
+                serde_json::json!({"name":null,"arguments":{},"event":"custom"}),
+                serde_json::json!({"name":null,"arguments":null,"shutdown":true}),
+                serde_json::json!({"name":"echo","arguments":{"ignored":true}}),
+            ],
+        )
+        .unwrap();
         assert_eq!(responses.len(), 5);
         assert!(responses[0]["manifest"].is_object());
         assert_eq!(responses[1]["result"]["message"], "hello");
@@ -440,8 +446,8 @@ mod worker_io_contracts {
         assert!(worker_entry_io(source.path(), &mut truncated, &mut Vec::new()).is_err());
         let mut oversized = vec![b'x'; MAX_PROTOCOL_BYTES + 2];
         oversized.push(b'\n');
-        assert!(worker_entry_io(
-            source.path(), &mut Cursor::new(oversized), &mut Vec::new()
-        ).is_err());
+        assert!(
+            worker_entry_io(source.path(), &mut Cursor::new(oversized), &mut Vec::new()).is_err()
+        );
     }
 }
