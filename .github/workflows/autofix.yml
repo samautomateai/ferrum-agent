@@ -6,7 +6,7 @@ permissions:
   contents: read
 concurrency:
   group: pr-validate-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   rustfmt:
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -23,21 +23,36 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           components: rustfmt
+      - name: Cache Rust dependencies and compilation (autofix)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-autofix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            rust-autofix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
+            rust-autofix-${{ runner.os }}-${{ runner.arch }}-
       - run: cargo fmt --all
-      - name: Commit formatting if required
+      - name: Synchronize Cargo.lock without upgrading unrelated dependencies
+        run: |
+          set -euo pipefail
+          cargo metadata --format-version 1 > /dev/null
+          cargo metadata --locked --format-version 1 > /dev/null
+      - name: Commit formatting and lockfile if required
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
-          if ! git diff --quiet --exit-code; then
-            git diff --check
+          git add -- '*.rs' Cargo.lock
+          if ! git diff --cached --quiet --exit-code; then
+            git diff --cached --check
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -- '*.rs'
-            git diff --cached --check
-            git commit -m "style(bot): apply rustfmt"
+            git commit -m "chore(bot): synchronize formatting and Cargo.lock"
             AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
             git -c "http.extraheader=AUTHORIZATION: basic $AUTH" push origin "HEAD:refs/heads/$BRANCH" --force-with-lease="refs/heads/$BRANCH:$PR_HEAD"
           fi
@@ -58,6 +73,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           components: rustfmt, clippy
+      - name: Cache Rust dependencies and compilation (test)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            rust-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
+            rust-test-${{ runner.os }}-${{ runner.arch }}-
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --all
@@ -73,6 +99,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           components: llvm-tools-preview
+      - name: Cache Rust dependencies and compilation (coverage)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-coverage-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            rust-coverage-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
+            rust-coverage-${{ runner.os }}-${{ runner.arch }}-
       # Install from crates.io instead of relying on GitHub Releases (504 errors).
       - name: Cache cargo-llvm-cov
         id: llvm-cov-cache
@@ -105,6 +142,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           components: rustfmt, clippy, llvm-tools-preview
+      - name: Cache Rust dependencies and compilation (quality)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-quality-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            rust-quality-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
+            rust-quality-${{ runner.os }}-${{ runner.arch }}-
       # Install directly from crates.io: GitHub release downloads repeatedly return 504.
       # Cache the resulting binaries for subsequent CI runs.
       - name: Restore Rust quality tools
@@ -124,11 +172,20 @@ jobs:
           cargo install --locked cargo-audit
           cargo install --locked cargo-deny
           cargo install --locked zizmor
+      - name: Cache Go-based quality tools
+        id: go-quality-tools-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ~/go/bin
+          key: go-quality-tools-v1-${{ runner.os }}-${{ runner.arch }}
       - name: Install actionlint
+        if: steps.go-quality-tools-cache.outputs.cache-hit != 'true'
         run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
       - name: Install Task
+        if: steps.go-quality-tools-cache.outputs.cache-hit != 'true'
         run: go install github.com/go-task/task/v3/cmd/task@latest
       - name: Install Gitleaks CLI
+        if: steps.go-quality-tools-cache.outputs.cache-hit != 'true'
         run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
       - name: Add Go CLI tools to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
@@ -147,5 +204,16 @@ jobs:
           ref: ${{ needs.rustfmt.outputs.validated_sha }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+      - name: Cache Rust dependencies and compilation (platforms)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-platforms-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            rust-platforms-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
+            rust-platforms-${{ runner.os }}-${{ runner.arch }}-
       - run: cargo test --locked --workspace --all-targets
       - run: cargo build --locked --release

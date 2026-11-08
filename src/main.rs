@@ -16,6 +16,8 @@ mod git_tools;
 mod search;
 mod sessions;
 mod stream;
+#[allow(dead_code)] // Tokio supervisor bridge is integrated in the next implementation slice.
+mod supervisor_runtime;
 mod tools;
 mod worker;
 use stream::request_message;
