@@ -66,7 +66,7 @@ impl fmt::Display for RuntimeFailure {
 
 impl std::error::Error for RuntimeFailure {}
 
-//! M3.1 red-phase contract tests. Implementation follows in a separate commit.
+// M3.1 contract tests.
 #[cfg(test)]
 mod tests {
     use super::{ErrorCode, ErrorOutcome, RuntimeFailure};
