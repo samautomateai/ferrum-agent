@@ -1,5 +1,6 @@
 //! Persistent, trusted Boa extension subprocess with framed IPC and deadlines.
 //! Process separation permits termination, but does not provide OS sandboxing.
+use crate::error_contract::{ErrorCode, ErrorOutcome, RuntimeFailure};
 use crate::extensions::{ExtensionManifest, TrustedExtensionHost};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -8,10 +9,10 @@ use std::{
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{Child, ChildStdin, Command, Stdio},
-    sync::mpsc::{self, Receiver},
+    process::{Child, Command, Stdio},
+    sync::mpsc::{self, Receiver, SyncSender},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const MAX_PROTOCOL_BYTES: usize = 2 * 1024 * 1024;
@@ -35,7 +36,8 @@ struct Response {
 
 struct Process {
     child: Child,
-    stdin: ChildStdin,
+    writes: SyncSender<Vec<u8>>,
+    write_results: Receiver<std::io::Result<()>>,
     replies: Receiver<Result<Response>>,
 }
 
@@ -50,9 +52,28 @@ impl Process {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .context("spawning extension worker")?;
+            .map_err(|error| {
+                RuntimeFailure::new(
+                    ErrorCode::WorkerCrash,
+                    ErrorOutcome::Failed,
+                    "unable to start extension worker",
+                )
+                .with_internal_cause(error.to_string())
+            })?;
         let stdin = child.stdin.take().context("worker stdin unavailable")?;
         let stdout = child.stdout.take().context("worker stdout unavailable")?;
+        let (write_tx, writes) = mpsc::sync_channel::<Vec<u8>>(1);
+        let (write_result_tx, write_results) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            let mut stdin = stdin;
+            while let Ok(frame) = writes.recv() {
+                let result = stdin.write_all(&frame).and_then(|_| stdin.flush());
+                let failed = result.is_err();
+                if write_result_tx.send(result).is_err() || failed {
+                    break;
+                }
+            }
+        });
         let (tx, replies) = mpsc::sync_channel(1);
         thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
@@ -70,7 +91,8 @@ impl Process {
         });
         Ok(Self {
             child,
-            stdin,
+            writes: write_tx,
+            write_results,
             replies,
         })
     }
@@ -78,19 +100,59 @@ impl Process {
     fn request(&mut self, request: &Request, timeout: Duration) -> Result<Response> {
         let mut encoded = serde_json::to_vec(request)?;
         if encoded.len() > MAX_PROTOCOL_BYTES {
-            bail!("worker request too large");
+            return Err(RuntimeFailure::new(
+                ErrorCode::WorkerCrash,
+                ErrorOutcome::NotStarted,
+                "worker request too large",
+            )
+            .into());
         }
         encoded.push(b'\n');
-        self.stdin
-            .write_all(&encoded)
-            .context("writing worker request")?;
-        self.stdin.flush()?;
-        let response = self
-            .replies
-            .recv_timeout(timeout)
-            .map_err(|error| anyhow::anyhow!("extension worker deadline/disconnect: {error}"))??;
+        let deadline = Instant::now() + timeout;
+        self.writes.try_send(encoded).map_err(|error| {
+            RuntimeFailure::new(
+                ErrorCode::WorkerCrash,
+                ErrorOutcome::NotStarted,
+                "worker writer unavailable",
+            )
+            .with_internal_cause(error.to_string())
+        })?;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let write_result = self
+            .write_results
+            .recv_timeout(remaining)
+            .map_err(|error| {
+                let code = match error {
+                    mpsc::RecvTimeoutError::Timeout => ErrorCode::WorkerTimeout,
+                    mpsc::RecvTimeoutError::Disconnected => ErrorCode::WorkerCrash,
+                };
+                RuntimeFailure::new(code, ErrorOutcome::Unknown, "worker write did not complete")
+            })?;
+        write_result.map_err(|error| {
+            RuntimeFailure::new(
+                ErrorCode::WorkerCrash,
+                ErrorOutcome::Unknown,
+                "worker write failed",
+            )
+            .with_internal_cause(error.to_string())
+        })?;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let response = self.replies.recv_timeout(remaining).map_err(|error| {
+            let code = match error {
+                mpsc::RecvTimeoutError::Timeout => ErrorCode::WorkerTimeout,
+                mpsc::RecvTimeoutError::Disconnected => ErrorCode::WorkerCrash,
+            };
+            RuntimeFailure::new(code, ErrorOutcome::Unknown, "worker did not complete")
+                .with_internal_cause(error.to_string())
+        })??;
         if let Some(error) = response.error.as_ref() {
-            bail!("extension worker: {error}");
+            return Err(RuntimeFailure::new(
+                ErrorCode::WorkerCrash,
+                ErrorOutcome::Unknown,
+                "extension worker reported an error",
+            )
+            .with_internal_cause(error.clone())
+            .into());
         }
         Ok(response)
     }
@@ -174,7 +236,12 @@ impl ExtensionWorker {
 
     pub fn invoke(&mut self, name: &str, arguments: &Value) -> Result<Value> {
         if !self.manifest.tools.iter().any(|tool| tool == name) {
-            bail!("unknown extension tool: {name}");
+            return Err(RuntimeFailure::new(
+                ErrorCode::WorkerCrash,
+                ErrorOutcome::NotStarted,
+                "unknown extension tool",
+            )
+            .into());
         }
         let request = Request {
             name: Some(name.to_owned()),
@@ -464,3 +531,7 @@ mod worker_io_contracts {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "worker_supervisor_tests.rs"]
+mod supervisor_failure_contracts;

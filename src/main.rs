@@ -10,6 +10,7 @@ use std::{
 };
 
 mod edit;
+mod error_contract;
 mod extensions;
 mod git_tools;
 mod search;
