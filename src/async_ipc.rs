@@ -79,7 +79,7 @@ impl FramedIpc {
                 }
                 return Ok(frame);
             }
-            if frame.len() >= MAX_FRAME + 1 {
+            if frame.len() > MAX_FRAME {
                 return Err(error(IpcOutcome::Unknown, io::ErrorKind::InvalidData));
             }
         }
