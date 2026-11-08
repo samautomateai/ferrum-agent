@@ -2,7 +2,6 @@ name: PR Autofix
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  workflow_dispatch:
 permissions:
   contents: write
 concurrency:
@@ -10,13 +9,13 @@ concurrency:
   cancel-in-progress: false
 jobs:
   rustfmt:
-    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref != 'main')
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref != 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
           persist-credentials: false
       - name: Install rustfmt
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
@@ -27,7 +26,7 @@ jobs:
       - name: Commit formatting only
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
           BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
         run: |
           set -euo pipefail
