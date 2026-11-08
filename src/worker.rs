@@ -129,8 +129,12 @@ impl Process {
                 RuntimeFailure::new(code, ErrorOutcome::Unknown, "worker write did not complete")
             })?;
         write_result.map_err(|error| {
-            RuntimeFailure::new(ErrorCode::WorkerCrash, ErrorOutcome::Unknown, "worker write failed")
-                .with_internal_cause(error.to_string())
+            RuntimeFailure::new(
+                ErrorCode::WorkerCrash,
+                ErrorOutcome::Unknown,
+                "worker write failed",
+            )
+            .with_internal_cause(error.to_string())
         })?;
         let remaining = deadline.saturating_duration_since(Instant::now());
         let response = self.replies.recv_timeout(remaining).map_err(|error| {
