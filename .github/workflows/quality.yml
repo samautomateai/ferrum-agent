@@ -15,6 +15,7 @@ jobs:
         with:
           components: rustfmt, clippy, llvm-tools-preview
       - name: Cache Rust dependencies and compilation (quality)
+        id: rust-build-cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
@@ -61,8 +62,34 @@ jobs:
         run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
       - name: Add Go CLI tools to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Record quality build start
+        id: quality-start
+        shell: bash
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
       - name: Mandatory quality contract
         run: task quality
+      - name: Report cache effectiveness and quality duration
+        if: always()
+        shell: bash
+        env:
+          BUILD_CACHE_HIT: ${{ steps.rust-build-cache.outputs.cache-hit }}
+          RUST_TOOLS_HIT: ${{ steps.rust-tools-cache.outputs.cache-hit }}
+          GO_TOOLS_HIT: ${{ steps.go-quality-tools-cache.outputs.cache-hit }}
+          START_EPOCH: ${{ steps.quality-start.outputs.epoch }}
+        run: |
+          {
+            echo '### Quality job cache metrics'
+            echo '| Metric | Value |'
+            echo '|---|---|'
+            echo "| Rust build cache exact hit | ${BUILD_CACHE_HIT:-false} |"
+            echo "| Rust quality tools cache hit | ${RUST_TOOLS_HIT:-false} |"
+            echo "| Go quality tools cache hit | ${GO_TOOLS_HIT:-false} |"
+            if [[ -n "${START_EPOCH:-}" ]]; then
+              echo "| Mandatory quality duration (seconds) | $(( $(date +%s) - START_EPOCH )) |"
+            fi
+            echo ''
+            echo 'Note: an exact cache miss may still restore from a prefix; inspect cache restore logs for partial hits.'
+          } >> "$GITHUB_STEP_SUMMARY"
   platforms:
     needs: quality
     strategy:
