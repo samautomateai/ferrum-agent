@@ -37,7 +37,12 @@ pub struct RuntimeFailure {
 
 impl RuntimeFailure {
     pub fn new(code: ErrorCode, outcome: ErrorOutcome, public_message: &'static str) -> Self {
-        Self { code, outcome, public_message, internal_cause: None }
+        Self {
+            code,
+            outcome,
+            public_message,
+            internal_cause: None,
+        }
     }
 
     pub fn with_internal_cause(mut self, cause: impl Into<String>) -> Self {
@@ -100,8 +105,12 @@ mod tests {
             ErrorCode::SessionIo,
             ErrorOutcome::Failed,
             "session storage failed",
-        ).with_internal_cause("authorization token: secret-canary-123");
+        )
+        .with_internal_cause("authorization token: secret-canary-123");
         assert!(!failure.to_string().contains("secret-canary-123"));
-        assert_eq!(failure.to_string(), "FERRUM-SESSION-IO: session storage failed");
+        assert_eq!(
+            failure.to_string(),
+            "FERRUM-SESSION-IO: session storage failed"
+        );
     }
 }
