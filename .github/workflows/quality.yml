@@ -84,9 +84,11 @@ jobs:
       - name: Enable compiler caching for quality
         shell: bash
         run: |
-          echo "RUSTC_WRAPPER=$(command -v sccache)" >> "$GITHUB_ENV"
-          echo "SCCACHE_DIR=$HOME/.cache/sccache" >> "$GITHUB_ENV"
-          echo "SCCACHE_CACHE_SIZE=2G" >> "$GITHUB_ENV"
+          {
+            echo "RUSTC_WRAPPER=$(command -v sccache)"
+            echo "SCCACHE_DIR=$HOME/.cache/sccache"
+            echo "SCCACHE_CACHE_SIZE=2G"
+          } >> "$GITHUB_ENV"
       - name: Record quality build start
         id: quality-start
         shell: bash
