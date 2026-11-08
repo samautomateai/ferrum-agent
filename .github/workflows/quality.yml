@@ -8,19 +8,39 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           components: rustfmt, clippy, llvm-tools-preview
-      - uses: taiki-e/install-action@cargo-llvm-cov
-      - uses: taiki-e/install-action@cargo-audit
-      - uses: taiki-e/install-action@cargo-deny
-      - uses: taiki-e/install-action@actionlint
-      - uses: taiki-e/install-action@zizmor
-      - uses: taiki-e/install-action@task
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Install directly from crates.io: GitHub release downloads repeatedly return 504.
+      # Cache the resulting binaries for subsequent CI runs.
+      - name: Restore Rust quality tools
+        id: rust-tools-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/bin/cargo-llvm-cov
+            ~/.cargo/bin/cargo-audit
+            ~/.cargo/bin/cargo-deny
+            ~/.cargo/bin/zizmor
+          key: quality-rust-tools-source-v1-${{ runner.os }}-${{ runner.arch }}
+      - name: Install Rust quality tools from crates.io
+        if: steps.rust-tools-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install --locked cargo-llvm-cov --version 0.9.1
+          cargo install --locked cargo-audit
+          cargo install --locked cargo-deny
+          cargo install --locked zizmor
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@latest
+      - name: Install Gitleaks CLI
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+      - name: Add Go CLI tools to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Mandatory quality contract
         run: task quality
   platforms:
@@ -30,7 +50,9 @@ jobs:
         os: [ubuntu-latest, windows-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
       - run: cargo test --locked --workspace --all-targets
       - run: cargo build --locked --release
