@@ -1,6 +1,6 @@
 # ADR-0001: Local-first reliability supervisor and diagnostic boundaries
 
-Status: **Proposed** (M3.0)
+Status: Accepted — 2026-11-08
 
 ## Context
 Ferrum combines Rust, persistent Boa child processes, LLM HTTP calls, and SQLite/JSON sessions. Rust's type safety does not prevent OOM, deadlocks, panics, lost subprocesses, or disclosure through logs and dumps. Existing worker deadlines are not equivalent to an OS sandbox.

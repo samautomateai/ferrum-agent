@@ -1,6 +1,6 @@
 # M3 — Runtime Reliability, Diagnostics and Resource Governance
 
-Status: **PROPOSED — design only; implementation requires review and approval.**
+Status: **ACCEPTED — M3.0 architecture baseline, 2026-11-08. Implementation remains separate.**
 Base: M2 merged to main. No production-code changes in this proposal.
 
 ## Goal and invariants

@@ -1,6 +1,6 @@
 # ADR-0003 — Diagnostics privacy, crash capture, and retention
 
-Status: Proposed for M3.0 review
+Status: Accepted — 2026-11-08
 
 ## Decision
 Ferrum operates local-first with safe metadata diagnostics enabled by default and remote export disabled by default. Full memory dumps are disabled in Ferrum by default and require explicit opt-in; OS-configured dumps may still occur independently.

@@ -1,6 +1,6 @@
 # M3 — Requirement-to-test traceability
 
-Status: Proposed. Tests below are not yet implemented or executed.
+Status: ACCEPTED — M3.0 baseline (2026-11-08). Tests remain unimplemented.
 
 | Requirement | Test class | Evidence / expected assertion | Phase |
 |---|---|---|---|

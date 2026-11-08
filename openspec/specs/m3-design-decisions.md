@@ -1,6 +1,6 @@
 # M3.0 — Decision register and implementation boundaries
 
-Status: PROPOSED FOR REVIEW (not frozen). This record resolves open questions into concrete recommendations; acceptance requires review of ADR-0001/0002/0003.
+Status: ACCEPTED — M3.0 baseline (2026-11-08). Tests remain unimplemented.. This record resolves open questions into concrete recommendations; ADRs 0001–0003 accepted; implementation must validate assumptions.
 
 ## Decision register
 | ID | Recommended resolution | Validation |

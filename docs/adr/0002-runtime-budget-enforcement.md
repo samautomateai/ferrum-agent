@@ -1,6 +1,6 @@
 # ADR-0002 — Explicit resource budgets and platform enforcement
 
-Status: Proposed
+Status: Accepted — 2026-11-08
 
 ## Decision
 Keep application-level byte and queue caps separate from OS-enforced process memory/CPU limits. Report each limit's status as `enforced`, `best_effort`, or `unavailable` in diagnostics. Never silently describe a best-effort check as memory protection.

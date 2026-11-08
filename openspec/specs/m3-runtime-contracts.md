@@ -1,6 +1,6 @@
 # M3.0 — Runtime contracts and resource budgets
 
-Status: PROPOSED. Specification only. Numeric values are initial defaults for review, not implemented guarantees.
+Status: ACCEPTED — M3.0 baseline (2026-11-08). Tests remain unimplemented. Numeric values are initial defaults for review, not implemented guarantees.
 
 ## Scope
 These contracts apply to parent agent, trusted Boa extension workers, LLM calls, sessions, and diagnostics. Units are binary MiB and wall-clock seconds unless noted.
