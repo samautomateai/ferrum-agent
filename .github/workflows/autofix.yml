@@ -30,7 +30,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: rust-autofix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.sha }}
+          key: rust-autofix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             rust-autofix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
             rust-autofix-${{ runner.os }}-${{ runner.arch }}-
@@ -78,7 +78,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: rust-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.sha }}
+          key: rust-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             rust-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
             rust-test-${{ runner.os }}-${{ runner.arch }}-
@@ -98,13 +98,14 @@ jobs:
         with:
           components: rustfmt, clippy, llvm-tools-preview
       - name: Cache Rust dependencies and compilation (quality)
+        id: rust-build-cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: rust-quality-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.sha }}
+          key: rust-quality-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             rust-quality-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
             rust-quality-${{ runner.os }}-${{ runner.arch }}-
@@ -144,9 +145,77 @@ jobs:
         run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
       - name: Add Go CLI tools to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      # sccache uses GitHub Actions cache storage for compiler outputs.
+      # Keep instrumented coverage artifacts isolated from ordinary Rust builds.
+      - name: Cache sccache executable
+        id: sccache-bin-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ~/.cargo/bin/sccache
+          key: sccache-0.12.0-${{ runner.os }}-${{ runner.arch }}
+      - name: Install sccache
+        if: steps.sccache-bin-cache.outputs.cache-hit != 'true'
+        run: cargo install --locked sccache --version 0.12.0
+      # Persist the local sccache store with actions/cache. The GHA sccache
+      # backend requires runtime cache-service variables not exposed here.
+      - name: Restore compiler cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ~/.cache/sccache
+          key: sccache-coverage-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            sccache-coverage-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
+            sccache-coverage-v1-${{ runner.os }}-${{ runner.arch }}-
+      - name: Enable compiler caching for quality
+        shell: bash
+        run: |
+          {
+            echo "RUSTC_WRAPPER=$(command -v sccache)"
+            echo "SCCACHE_DIR=$HOME/.cache/sccache"
+            echo "SCCACHE_CACHE_SIZE=2G"
+          } >> "$GITHUB_ENV"
+      - name: Record quality build start
+        id: quality-start
+        shell: bash
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
       - name: Mandatory quality contract
         run: task quality
+      - name: Report cache effectiveness and quality duration
+        if: always()
+        shell: bash
+        env:
+          BUILD_CACHE_HIT: ${{ steps.rust-build-cache.outputs.cache-hit }}
+          RUST_TOOLS_HIT: ${{ steps.rust-tools-cache.outputs.cache-hit }}
+          GO_TOOLS_HIT: ${{ steps.go-quality-tools-cache.outputs.cache-hit }}
+          START_EPOCH: ${{ steps.quality-start.outputs.epoch }}
+        run: |
+          {
+            echo '### Quality job cache metrics'
+            echo '| Metric | Value |'
+            echo '|---|---|'
+            echo "| Rust build cache exact hit | ${BUILD_CACHE_HIT:-false} |"
+            echo "| Rust quality tools cache hit | ${RUST_TOOLS_HIT:-false} |"
+            echo "| Go quality tools cache hit | ${GO_TOOLS_HIT:-false} |"
+            if [[ -n "${START_EPOCH:-}" ]]; then
+              echo "| Mandatory quality duration (seconds) | $(( $(date +%s) - START_EPOCH )) |"
+            fi
+            echo ''
+            echo 'Note: an exact cache miss may still restore from a prefix; inspect cache restore logs for partial hits.'
+          } >> "$GITHUB_STEP_SUMMARY"
       # task quality already enforces >=90% line coverage; avoid a second full instrumented build.
+      - name: Compiler cache statistics (quality)
+        if: always()
+        shell: bash
+        run: |
+          if command -v sccache >/dev/null 2>&1; then
+            {
+              echo '### sccache compiler statistics'
+              echo '~~~text'
+              sccache --show-stats || true
+              echo '~~~'
+            } >> "$GITHUB_STEP_SUMMARY"
+            sccache --stop-server || true
+          fi
       - name: Generate LCOV artifact
         if: always()
         run: cargo llvm-cov report --locked --lcov --output-path lcov.info
@@ -176,7 +245,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: rust-platforms-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.sha }}
+          key: rust-platforms-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             rust-platforms-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}-
             rust-platforms-${{ runner.os }}-${{ runner.arch }}-

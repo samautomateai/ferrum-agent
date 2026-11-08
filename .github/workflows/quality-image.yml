@@ -1,0 +1,82 @@
+name: Linux quality image candidate
+on:
+  workflow_dispatch:
+    inputs:
+      base_image:
+        description: 'Reviewed Rust 1.99.1 + Go base image pinned by sha256 digest'
+        required: true
+        type: string
+      actionlint_version:
+        description: 'Pinned actionlint version'
+        required: true
+        type: string
+      task_version:
+        description: 'Pinned Go Task version'
+        required: true
+        type: string
+      cargo_audit_version:
+        description: 'Pinned cargo-audit version'
+        required: true
+        type: string
+      cargo_deny_version:
+        description: 'Pinned cargo-deny version'
+        required: true
+        type: string
+      zizmor_version:
+        description: 'Pinned zizmor version'
+        required: true
+        type: string
+permissions:
+  contents: read
+  packages: write
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: ci-image-publishing
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate immutable base and explicit tool versions
+        env:
+          BASE_IMAGE: ${{ inputs.base_image }}
+          ACTIONLINT_VERSION: ${{ inputs.actionlint_version }}
+          TASK_VERSION: ${{ inputs.task_version }}
+          CARGO_AUDIT_VERSION: ${{ inputs.cargo_audit_version }}
+          CARGO_DENY_VERSION: ${{ inputs.cargo_deny_version }}
+          ZIZMOR_VERSION: ${{ inputs.zizmor_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BASE_IMAGE" =~ ^[a-zA-Z0-9./_-]+@sha256:[a-f0-9]{64}$ ]] || exit 1
+          for version in "$ACTIONLINT_VERSION" "$TASK_VERSION" "$CARGO_AUDIT_VERSION" "$CARGO_DENY_VERSION" "$ZIZMOR_VERSION"; do
+            [[ "$version" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          done
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - name: Login to GHCR
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish candidate manifest
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: .
+          file: ci/images/quality/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: true
+          sbom: true
+          tags: ghcr.io/${{ github.repository_owner }}/ferrum-quality:trial-${{ github.run_id }}
+          build-args: |
+            BASE_IMAGE=${{ inputs.base_image }}
+            ACTIONLINT_VERSION=${{ inputs.actionlint_version }}
+            TASK_VERSION=${{ inputs.task_version }}
+            CARGO_AUDIT_VERSION=${{ inputs.cargo_audit_version }}
+            CARGO_DENY_VERSION=${{ inputs.cargo_deny_version }}
+            ZIZMOR_VERSION=${{ inputs.zizmor_version }}
