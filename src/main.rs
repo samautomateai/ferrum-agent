@@ -266,7 +266,10 @@ fn run(args: &Args, prompt: &str) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let args = Args::parse();
+    main_with_args(Args::parse())
+}
+
+fn main_with_args(args: Args) -> Result<()> {
     if args.extension_worker {
         let source = args
             .worker_source
@@ -390,3 +393,6 @@ mod agent_loop_tests;
 #[cfg(test)]
 #[path = "agent_tests.rs"]
 mod agent_tests;
+#[cfg(test)]
+#[path = "cli_session_tests.rs"]
+mod cli_session_tests;
