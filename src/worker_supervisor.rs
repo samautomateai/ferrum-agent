@@ -34,7 +34,10 @@ enum CommandMessage {
         deadline: Instant,
         reply: oneshot::Sender<Result<Vec<u8>, SupervisorError>>,
     },
-    Shutdown { deadline: Instant, reply: oneshot::Sender<Result<(), SupervisorError>> },
+    Shutdown {
+        deadline: Instant,
+        reply: oneshot::Sender<Result<(), SupervisorError>>,
+    },
 }
 
 pub struct WorkerSupervisor {
@@ -55,22 +58,39 @@ impl WorkerSupervisor {
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| SupervisorError::NotStarted(e.kind()))?;
-        let stdin = child.stdin.take().ok_or(SupervisorError::NotStarted(io::ErrorKind::BrokenPipe))?;
-        let stdout = child.stdout.take().ok_or(SupervisorError::NotStarted(io::ErrorKind::BrokenPipe))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or(SupervisorError::NotStarted(io::ErrorKind::BrokenPipe))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or(SupervisorError::NotStarted(io::ErrorKind::BrokenPipe))?;
         let (sender, receiver) = mpsc::channel(COMMAND_CAPACITY);
         let actor = tokio::spawn(actor_loop(child, FramedIpc::new(stdin, stdout), receiver));
         Ok(Self { sender, actor })
     }
 
-    pub async fn exchange(&self, payload: Vec<u8>, deadline: Instant) -> Result<Vec<u8>, SupervisorError> {
+    pub async fn exchange(
+        &self,
+        payload: Vec<u8>,
+        deadline: Instant,
+    ) -> Result<Vec<u8>, SupervisorError> {
         if Instant::now() >= deadline {
             return Err(SupervisorError::NotStarted(io::ErrorKind::TimedOut));
         }
         let (reply, response) = oneshot::channel();
-        timeout_at(deadline, self.sender.send(CommandMessage::Exchange { payload, deadline, reply }))
-            .await
-            .map_err(|_| SupervisorError::NotStarted(io::ErrorKind::TimedOut))?
-            .map_err(|_| SupervisorError::Closed)?;
+        timeout_at(
+            deadline,
+            self.sender.send(CommandMessage::Exchange {
+                payload,
+                deadline,
+                reply,
+            }),
+        )
+        .await
+        .map_err(|_| SupervisorError::NotStarted(io::ErrorKind::TimedOut))?
+        .map_err(|_| SupervisorError::Closed)?;
         timeout_at(deadline, response)
             .await
             .map_err(|_| SupervisorError::Unknown(io::ErrorKind::TimedOut))?
@@ -80,10 +100,14 @@ impl WorkerSupervisor {
     pub async fn shutdown(self) -> Result<(), SupervisorError> {
         let (reply, response) = oneshot::channel();
         let deadline = Instant::now() + SHUTDOWN_GRACE;
-        timeout_at(deadline, self.sender.send(CommandMessage::Shutdown { deadline, reply }))
-            .await
-            .map_err(|_| SupervisorError::Unknown(io::ErrorKind::TimedOut))?
-            .map_err(|_| SupervisorError::Closed)?;
+        timeout_at(
+            deadline,
+            self.sender
+                .send(CommandMessage::Shutdown { deadline, reply }),
+        )
+        .await
+        .map_err(|_| SupervisorError::Unknown(io::ErrorKind::TimedOut))?
+        .map_err(|_| SupervisorError::Closed)?;
         let shutdown_result = timeout_at(deadline, response)
             .await
             .map_err(|_| SupervisorError::Unknown(io::ErrorKind::TimedOut))?
@@ -96,7 +120,11 @@ impl WorkerSupervisor {
     }
 }
 
-async fn actor_loop(mut child: Child, mut ipc: FramedIpc, mut receiver: mpsc::Receiver<CommandMessage>) {
+async fn actor_loop(
+    mut child: Child,
+    mut ipc: FramedIpc,
+    mut receiver: mpsc::Receiver<CommandMessage>,
+) {
     let mut lifecycle = WorkerLifecycle::new();
     if lifecycle.transition(WorkerEvent::Started).is_err() {
         let _ = child.start_kill();
@@ -105,7 +133,11 @@ async fn actor_loop(mut child: Child, mut ipc: FramedIpc, mut receiver: mpsc::Re
     }
     while let Some(command) = receiver.recv().await {
         match command {
-            CommandMessage::Exchange { payload, deadline, reply } => {
+            CommandMessage::Exchange {
+                payload,
+                deadline,
+                reply,
+            } => {
                 let result = if reply.is_closed() || Instant::now() >= deadline {
                     Err(SupervisorError::NotStarted(io::ErrorKind::TimedOut))
                 } else if lifecycle.transition(WorkerEvent::RequestAccepted).is_err() {
@@ -122,12 +154,19 @@ async fn actor_loop(mut child: Child, mut ipc: FramedIpc, mut receiver: mpsc::Re
                 // A caller that abandons an in-flight request cannot trigger replay.
                 let failed = result.is_err();
                 let _ = reply.send(result);
-                if failed { break; }
+                if failed {
+                    break;
+                }
             }
             CommandMessage::Shutdown { deadline, reply } => {
                 let _ = lifecycle.transition(WorkerEvent::StopRequested);
                 // Acknowledgement must follow the shutdown handshake, not precede it.
-                let handshake = ipc.exchange(br#"{"name":null,"arguments":null,"shutdown":true}"#, deadline).await;
+                let handshake = ipc
+                    .exchange(
+                        br#"{"name":null,"arguments":null,"shutdown":true}"#,
+                        deadline,
+                    )
+                    .await;
                 drop(ipc);
                 let exited = timeout_at(deadline, child.wait()).await;
                 if !matches!(exited, Ok(Ok(_))) {
@@ -136,7 +175,9 @@ async fn actor_loop(mut child: Child, mut ipc: FramedIpc, mut receiver: mpsc::Re
                     let _ = child.wait().await;
                 }
                 let result = match (handshake, exited) {
-                    (Ok(response), Ok(Ok(status))) if status.success() && shutdown_acknowledged(&response) => {
+                    (Ok(response), Ok(Ok(status)))
+                        if status.success() && shutdown_acknowledged(&response) =>
+                    {
                         let _ = lifecycle.transition(WorkerEvent::Stopped);
                         Ok(())
                     }
@@ -162,9 +203,11 @@ async fn actor_loop(mut child: Child, mut ipc: FramedIpc, mut receiver: mpsc::Re
 fn shutdown_acknowledged(response: &[u8]) -> bool {
     serde_json::from_slice::<serde_json::Value>(response)
         .ok()
-        .is_some_and(|value| value.is_object()
-            && value.get("error").is_none_or(serde_json::Value::is_null)
-            && value.get("result").is_some())
+        .is_some_and(|value| {
+            value.is_object()
+                && value.get("error").is_none_or(serde_json::Value::is_null)
+                && value.get("result").is_some()
+        })
 }
 
 #[cfg(test)]
@@ -182,7 +225,9 @@ mod tests {
     #[test]
     fn shutdown_ack_requires_valid_response() {
         assert!(shutdown_acknowledged(br#"{"result":null,"error":null}"#));
-        assert!(!shutdown_acknowledged(br#"{"error":"failed","result":null}"#));
+        assert!(!shutdown_acknowledged(
+            br#"{"error":"failed","result":null}"#
+        ));
         assert!(!shutdown_acknowledged(b"invalid"));
         assert!(!shutdown_acknowledged(br#"{"manifest":{}}"#));
         assert!(!shutdown_acknowledged(br#"{"result":null,"error":true}"#));

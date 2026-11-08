@@ -25,10 +25,17 @@ pub struct FramedIpc {
 
 impl FramedIpc {
     pub fn new(stdin: ChildStdin, stdout: ChildStdout) -> Self {
-        Self { stdin, stdout: BufReader::new(stdout) }
+        Self {
+            stdin,
+            stdout: BufReader::new(stdout),
+        }
     }
 
-    pub async fn exchange(&mut self, request: &[u8], deadline: Instant) -> Result<Vec<u8>, IpcError> {
+    pub async fn exchange(
+        &mut self,
+        request: &[u8],
+        deadline: Instant,
+    ) -> Result<Vec<u8>, IpcError> {
         let error = |outcome, kind| IpcError { outcome, kind };
         if request.len() > MAX_FRAME || request.contains(&b'\n') {
             return Err(error(IpcOutcome::NotStarted, io::ErrorKind::InvalidInput));
@@ -41,19 +48,23 @@ impl FramedIpc {
             self.stdin.write_all(b"\n").await?;
             self.stdin.flush().await
         };
-        timeout_at(deadline, write).await
+        timeout_at(deadline, write)
+            .await
             .map_err(|_| error(IpcOutcome::Unknown, io::ErrorKind::TimedOut))?
             .map_err(|e| error(IpcOutcome::Unknown, e.kind()))?;
 
         let mut frame = Vec::new();
         loop {
-            let available = timeout_at(deadline, self.stdout.fill_buf()).await
+            let available = timeout_at(deadline, self.stdout.fill_buf())
+                .await
                 .map_err(|_| error(IpcOutcome::Unknown, io::ErrorKind::TimedOut))?
                 .map_err(|e| error(IpcOutcome::Unknown, e.kind()))?;
             if available.is_empty() {
                 return Err(error(IpcOutcome::Unknown, io::ErrorKind::UnexpectedEof));
             }
-            let count = available.iter().position(|b| *b == b'\n')
+            let count = available
+                .iter()
+                .position(|b| *b == b'\n')
                 .map_or(available.len(), |i| i + 1);
             if frame.len().saturating_add(count) > MAX_FRAME + 1 {
                 return Err(error(IpcOutcome::Unknown, io::ErrorKind::InvalidData));
