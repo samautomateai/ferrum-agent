@@ -23,7 +23,6 @@ impl ErrorCode {
 pub enum ErrorOutcome {
     NotStarted,
     Failed,
-    Succeeded,
     Unknown,
 }
 
@@ -65,7 +64,7 @@ impl RuntimeFailure {
 
 impl fmt::Display for RuntimeFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.code(), self.public_message)
+        write!(f, "{}: {} (outcome={:?}, retryable={})", self.code(), self.public_message, self.outcome(), self.retryable())
     }
 }
 
@@ -110,7 +109,7 @@ mod tests {
         assert!(!failure.to_string().contains("secret-canary-123"));
         assert_eq!(
             failure.to_string(),
-            "FERRUM-SESSION-IO: session storage failed"
+            "FERRUM-SESSION-IO: session storage failed (outcome=Failed, retryable=false)"
         );
     }
 }
