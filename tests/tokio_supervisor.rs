@@ -99,8 +99,7 @@ async fn worker_crash_closes_actor_without_replaying_request() {
     // Both Closed and Unknown(BrokenPipe) are conservative, non-replayed outcomes.
     assert!(matches!(
         second,
-        Err(SupervisorError::Closed)
-            | Err(SupervisorError::Unknown(io::ErrorKind::BrokenPipe))
+        Err(SupervisorError::Closed) | Err(SupervisorError::Unknown(io::ErrorKind::BrokenPipe))
     ));
 }
 
