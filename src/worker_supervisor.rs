@@ -43,6 +43,7 @@ enum CommandMessage {
 pub struct WorkerSupervisor {
     sender: mpsc::Sender<CommandMessage>,
     actor: Option<JoinHandle<()>>,
+    runtime: tokio::runtime::Handle,
 }
 
 impl WorkerSupervisor {
@@ -71,6 +72,7 @@ impl WorkerSupervisor {
         Ok(Self {
             sender,
             actor: Some(actor),
+            runtime: tokio::runtime::Handle::current(),
         })
     }
 
@@ -127,7 +129,7 @@ impl WorkerSupervisor {
             Ok(Ok(())) => {}
             Ok(Err(_)) => return Err(SupervisorError::Closed),
             Err(_) => {
-                tokio::spawn(async move {
+                self.runtime.spawn(async move {
                     let _ = actor.await;
                 });
                 return Err(SupervisorError::Unknown(io::ErrorKind::TimedOut));
@@ -142,7 +144,7 @@ impl Drop for WorkerSupervisor {
         // Closing the channel lets the actor kill and reap its child on exit.
         // Keep the JoinHandle owned by a reaper rather than detaching it.
         if let Some(actor) = self.actor.take() {
-            tokio::spawn(async move {
+            self.runtime.spawn(async move {
                 let _ = actor.await;
             });
         }
