@@ -125,8 +125,22 @@ async fn actor_loop(mut child: Child, mut ipc: FramedIpc, mut receiver: mpsc::Re
             }
             CommandMessage::Shutdown { reply } => {
                 let _ = lifecycle.transition(WorkerEvent::StopRequested);
+                // Acknowledgement must follow the shutdown handshake, not precede it.
+                let deadline = Instant::now() + SHUTDOWN_GRACE;
+                let handshake = ipc.exchange(br#"{"shutdown":true,"arguments":null}"#, deadline).await;
+                drop(ipc);
+                let exited = timeout_at(deadline, child.wait()).await;
+                if !matches!(exited, Ok(Ok(_))) {
+                    let _ = child.start_kill();
+                    let _ = child.wait().await;
+                }
+                if handshake.is_ok() && matches!(exited, Ok(Ok(_))) {
+                    let _ = lifecycle.transition(WorkerEvent::Stopped);
+                } else {
+                    let _ = lifecycle.transition(WorkerEvent::Fault);
+                }
                 let _ = reply.send(());
-                break;
+                return;
             }
         }
     }
