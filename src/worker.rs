@@ -564,7 +564,9 @@ mod supervisor_failure_contracts {
             write_results,
             replies,
         };
-        let failure = process.request(&dummy_request(), Duration::from_secs(1)).unwrap_err();
+        let failure = process
+            .request(&dummy_request(), Duration::from_secs(1))
+            .unwrap_err();
         let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
         assert_eq!(typed.outcome(), ErrorOutcome::NotStarted);
         assert!(!typed.retryable());
@@ -588,7 +590,9 @@ mod supervisor_failure_contracts {
             replies,
         };
         let start = Instant::now();
-        let failure = process.request(&dummy_request(), Duration::from_millis(20)).unwrap_err();
+        let failure = process
+            .request(&dummy_request(), Duration::from_millis(20))
+            .unwrap_err();
         let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
         assert_eq!(typed.code(), "FERRUM-WORKER-TIMEOUT");
         assert_eq!(typed.outcome(), ErrorOutcome::Unknown);
@@ -613,7 +617,9 @@ mod supervisor_failure_contracts {
             write_results,
             replies,
         };
-        let failure = process.request(&dummy_request(), Duration::from_millis(20)).unwrap_err();
+        let failure = process
+            .request(&dummy_request(), Duration::from_millis(20))
+            .unwrap_err();
         let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
         assert_eq!(typed.code(), "FERRUM-WORKER-TIMEOUT");
         assert_eq!(typed.outcome(), ErrorOutcome::Unknown);
