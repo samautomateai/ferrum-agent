@@ -586,9 +586,14 @@ fn assert_windows_child_reaped(pid: u32) {
     let listing = String::from_utf8_lossy(&output.stdout);
     let present = listing.lines().any(|line| {
         let fields: Vec<_> = line.trim().trim_matches('"').split("\",\"").collect();
-        fields.get(1).is_some_and(|field| field.trim_matches('"') == pid.to_string())
+        fields
+            .get(1)
+            .is_some_and(|field| field.trim_matches('"') == pid.to_string())
     });
-    assert!(!present, "worker PID {pid} remains in Windows process table");
+    assert!(
+        !present,
+        "worker PID {pid} remains in Windows process table"
+    );
 }
 
 #[cfg(target_os = "windows")]
@@ -643,7 +648,10 @@ async fn busy_worker_shutdown_is_bounded_and_cleanup_completes() {
         request_result,
         Err(SupervisorError::Unknown(io::ErrorKind::TimedOut))
     ));
-    assert!(shutdown_result.is_err(), "hung worker cannot acknowledge shutdown");
+    assert!(
+        shutdown_result.is_err(),
+        "hung worker cannot acknowledge shutdown"
+    );
     tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
         .await
         .expect("busy worker cleanup timed out")
