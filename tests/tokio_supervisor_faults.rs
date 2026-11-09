@@ -436,3 +436,50 @@ async fn dropping_supervisor_while_response_blocked_reaps_child() {
     #[cfg(target_os = "windows")]
     assert_windows_child_reaped(pid);
 }
+
+#[tokio::test]
+async fn cancelled_dispatched_request_is_never_replayed() {
+    use std::sync::Arc;
+
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        source.path(),
+        concat!(
+            "let calls=0;",
+            "pi.registerTool({name:'count',execute:()=>{",
+            "calls++;const end=Date.now()+350;while(Date.now()<end){};",
+            "return {calls};}});",
+            "pi.registerTool({name:'readCount',execute:()=>({calls})});"
+        ),
+    )
+    .unwrap();
+    let worker = Arc::new(WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap());
+    worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let active_worker = Arc::clone(&worker);
+    let request = tokio::spawn(async move {
+        active_worker
+            .exchange(br#"{"name":"count","arguments":{}}"#.to_vec(), deadline())
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+    tokio::time::sleep(Duration::from_millis(350)).await;
+    let response = worker
+        .exchange(
+            br#"{"name":"readCount","arguments":{}}"#.to_vec(),
+            deadline(),
+        )
+        .await
+        .unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(&response).unwrap();
+    assert_eq!(parsed["result"]["calls"], 1, "cancelled invocation must not replay");
+    Arc::try_unwrap(worker)
+        .unwrap_or_else(|_| panic!("request must release worker"))
+        .shutdown()
+        .await
+        .unwrap();
+}
