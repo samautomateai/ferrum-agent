@@ -137,6 +137,9 @@ impl WorkerSupervisor {
     /// Submit a request without waiting for queue capacity. A saturated queue
     /// rejects before dispatch, so the caller can safely retry later.
     /// Once enqueued, a timeout is conservative: the worker may have run it.
+    // The binary compiles this module separately; the nonblocking API is
+    // exercised through the library's integration tests until CLI wiring lands.
+    #[allow(dead_code)]
     pub async fn try_exchange(
         &self,
         payload: Vec<u8>,
