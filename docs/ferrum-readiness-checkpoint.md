@@ -5,6 +5,12 @@
 > Current baseline: PR #10, commit `c0d55c8`, CI run [42584693887](https://github.com/samautomateai/ferrum-agent/actions/runs/42584693887) — all six jobs green. This proves configured CI checks, not the remaining runtime fault-injection requirements.
 > Scope: standalone Rust-native coding agent first; Pi/OMP compatibility and advanced orchestration thereafter. Docker packaging is parked.
 
+## Requirements and design governance
+
+- [ ] Approve [M3.1 requirements](requirements/m31-worker-supervision.md) and [M3.1 design](design/m31-worker-supervision.md) before claiming milestone sign-off.
+- [ ] Adopt the [lightweight BMAD-inspired requirements/design workflow](development/requirements-and-design.md) as the project-wide baseline; maintainer approval pending.
+- [ ] Keep requirement IDs, OpenSpec clauses, tests and checkpoint evidence traceable in each cohesive implementation PR.
+
 ## Status conventions and update protocol
 
 - `[x]` = acceptance demonstrated and evidence linked. `[ ]` = incomplete, unverified, or not yet scoped.

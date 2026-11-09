@@ -1,6 +1,6 @@
 # M3.1 follow-up — Tokio worker supervisor
 
-Status: proposed. Scope: replace internal synchronous worker transport and lifecycle management incrementally; preserve the existing synchronous ExtensionWorker public interface and Boa process isolation.
+Status: proposed; requirement and design approval pending. See [requirements](../../docs/requirements/m31-worker-supervision.md) and [design](../../docs/design/m31-worker-supervision.md). Scope: replace internal synchronous worker transport and lifecycle management incrementally; preserve the existing synchronous ExtensionWorker public interface and Boa process isolation.
 
 ## Requirements
 - R1: Exactly one Tokio runtime owned by the agent process; never create one per worker. The synchronous facade MUST NOT block from within an existing Tokio runtime; detect and reject unsupported reentrant calls with a typed error.
