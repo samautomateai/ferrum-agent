@@ -118,10 +118,13 @@
 
 ## Checkpoint log
 
-M3.1 additional fault coverage: timeout after dispatched side-effecting invocation must close the actor without replay; malformed JSON must terminate the worker and complete the actor cleanup observer. New tests pending CI. OS-level liveness, runtime teardown, blocked stdin and structured tracing remain unchecked.
+Next cohesive verification unit (pending CI): Linux `/proc/<pid>` liveness assertions after graceful shutdown, Drop, and timed-out side-effecting calls. This covers Linux direct children only; Windows process-liveness, runtime teardown, blocked IPC, structured tracing and M3.2 descendant containment remain outstanding.
 
 
-Pending CI: supervisor now exposes direct-child PID and an actor-cleanup observer; tests assert shutdown, crash, timeout and Drop actor completion, plus event/invoke continuity. These prove actor cleanup completion, **not independently OS-verified reaping or descendant containment**. Keep the full reaping criterion unchecked until OS-liveness evidence and runtime-teardown guarantees exist.
+M3.1 additional fault coverage: timeout after dispatched side-effecting invocation must close the actor without replay; malformed JSON must terminate the worker and complete the actor cleanup observer. Tests passed in CI run 42589940863. OS-level liveness, runtime teardown, blocked stdin and structured tracing remain unchecked.
+
+
+Verified by CI 42589940863: supervisor now exposes direct-child PID and an actor-cleanup observer; tests assert shutdown, crash, timeout and Drop actor completion, plus event/invoke continuity. These prove actor cleanup completion, **not independently OS-verified reaping or descendant containment**. Keep the full reaping criterion unchecked until OS-liveness evidence and runtime-teardown guarantees exist.
 
 
 | Date | Commit / PR | Evidence | Decision / remaining risk |

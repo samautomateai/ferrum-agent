@@ -404,3 +404,68 @@ async fn malformed_json_closes_actor_and_reaps_before_observer_notifies() {
         .expect("malformed protocol cleanup did not complete")
         .expect("cleanup observer closed without completion");
 }
+
+#[cfg(target_os = "linux")]
+fn assert_linux_child_reaped(pid: u32) {
+    // After the supervisor has awaited Child::wait, Linux must no longer
+    // expose this PID under /proc. This is a direct-child check only.
+    assert!(
+        !std::path::Path::new("/proc").join(pid.to_string()).exists(),
+        "worker PID {pid} remains visible after actor cleanup"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn linux_direct_child_disappears_after_graceful_shutdown() {
+    let source = extension();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let pid = worker.child_id().expect("worker PID");
+    worker.shutdown().await.unwrap();
+    assert_linux_child_reaped(pid);
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn linux_direct_child_disappears_after_drop() {
+    let source = extension();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let pid = worker.child_id().expect("worker PID");
+    let mut exited = worker.exit_observer();
+    drop(worker);
+    tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
+        .await
+        .expect("drop cleanup timed out")
+        .expect("drop cleanup observer closed");
+    assert_linux_child_reaped(pid);
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn linux_direct_child_disappears_after_unknown_timeout() {
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        source.path(),
+        "pi.registerTool({name:'hang',execute:()=>{while(true){}}});",
+    )
+    .unwrap();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let pid = worker.child_id().expect("worker PID");
+    let mut exited = worker.exit_observer();
+    worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let result = worker
+        .exchange(
+            br#"{"name":"hang","arguments":{}}"#.to_vec(),
+            Instant::now() + Duration::from_millis(250),
+        )
+        .await;
+    assert!(matches!(result, Err(SupervisorError::Unknown(io::ErrorKind::TimedOut))));
+    tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
+        .await
+        .expect("timeout cleanup timed out")
+        .expect("timeout cleanup observer closed");
+    assert_linux_child_reaped(pid);
+}
