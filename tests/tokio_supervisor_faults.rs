@@ -5,7 +5,11 @@ use tokio::time::Instant;
 
 fn extension() -> tempfile::NamedTempFile {
     let source = tempfile::NamedTempFile::new().unwrap();
-    fs::write(source.path(), "pi.registerTool({name:'echo',execute:(args)=>args});").unwrap();
+    fs::write(
+        source.path(),
+        "pi.registerTool({name:'echo',execute:(args)=>args});",
+    )
+    .unwrap();
     source
 }
 

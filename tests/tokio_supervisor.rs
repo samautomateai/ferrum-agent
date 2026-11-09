@@ -472,4 +472,3 @@ async fn linux_direct_child_disappears_after_unknown_timeout() {
         .expect("timeout cleanup observer closed");
     assert_linux_child_reaped(pid);
 }
-
