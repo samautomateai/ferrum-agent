@@ -14,7 +14,11 @@ use tokio::{
 const COMMAND_CAPACITY: usize = 16;
 
 /// Emit only fixed lifecycle labels and error categories. Never serialize IPC payloads.
-fn lifecycle_record(event: &'static str, pid: Option<u32>, error: Option<io::ErrorKind>) -> serde_json::Value {
+fn lifecycle_record(
+    event: &'static str,
+    pid: Option<u32>,
+    error: Option<io::ErrorKind>,
+) -> serde_json::Value {
     serde_json::json!({
         "component": "worker_supervisor",
         "event": event,
