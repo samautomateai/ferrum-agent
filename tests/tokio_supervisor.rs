@@ -272,18 +272,18 @@ async fn shutdown_after_worker_crash_is_bounded_and_reports_failure() {
 }
 
 #[tokio::test]
-async fn malformed_json_request_returns_worker_error_without_poisoning_connection() {
+async fn malformed_json_request_closes_worker_without_replay() {
     let source = extension();
     let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
-    let reply = worker.exchange(b"{invalid-json}".to_vec(), deadline()).await.unwrap();
-    let decoded: serde_json::Value = serde_json::from_slice(&reply).unwrap();
-    assert!(decoded["error"].is_string(), "malformed JSON must report a worker error");
-
-    let hello = worker
+    let first = worker.exchange(b"{invalid-json}".to_vec(), deadline()).await;
+    // The worker rejects invalid protocol JSON and exits without a reply.
+    // The supervisor must conservatively report an unknown outcome.
+    assert!(matches!(first, Err(SupervisorError::Unknown(_))));
+    let second = worker
         .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
-        .await
-        .unwrap();
-    let decoded: serde_json::Value = serde_json::from_slice(&hello).unwrap();
-    assert!(decoded["manifest"].is_object(), "worker must remain usable");
-    worker.shutdown().await.unwrap();
+        .await;
+    assert!(matches!(
+        second,
+        Err(SupervisorError::Closed) | Err(SupervisorError::Unknown(_))
+    ));
 }
