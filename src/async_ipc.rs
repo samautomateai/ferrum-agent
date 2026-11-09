@@ -1,6 +1,6 @@
 //! Bounded Tokio framed transport used by the production extension-worker supervisor.
 use std::io;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, ChildStdout};
 use tokio::time::{timeout_at, Instant};
 
@@ -43,18 +43,30 @@ impl FramedIpc {
         if Instant::now() >= deadline {
             return Err(error(IpcOutcome::NotStarted, io::ErrorKind::TimedOut));
         }
-        let write = async {
-            self.stdin.write_all(request).await?;
-            self.stdin.write_all(b"\n").await?;
-            self.stdin.flush().await
-        };
-        timeout_at(deadline, write)
-            .await
-            .map_err(|_| error(IpcOutcome::Unknown, io::ErrorKind::TimedOut))?
-            .map_err(|e| error(IpcOutcome::Unknown, e.kind()))?;
+        write_frame(&mut self.stdin, request, deadline).await?;
 
         read_frame(&mut self.stdout, deadline).await
     }
+}
+
+async fn write_frame<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    request: &[u8],
+    deadline: Instant,
+) -> Result<(), IpcError> {
+    let error = |kind| IpcError {
+        outcome: IpcOutcome::Unknown,
+        kind,
+    };
+    let write = async {
+        writer.write_all(request).await?;
+        writer.write_all(b"\n").await?;
+        writer.flush().await
+    };
+    timeout_at(deadline, write)
+        .await
+        .map_err(|_| error(io::ErrorKind::TimedOut))?
+        .map_err(|e| error(e.kind()))
 }
 
 async fn read_frame<R: AsyncBufRead + Unpin>(
@@ -101,6 +113,43 @@ async fn read_frame<R: AsyncBufRead + Unpin>(
 mod tests {
     use super::*;
     use tokio::io::{duplex, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn blocked_write_is_unknown_timeout() {
+        let (mut writer, _reader) = duplex(1);
+        let result = write_frame(
+            &mut writer,
+            b"request that cannot fit into the pipe",
+            Instant::now() + std::time::Duration::from_millis(30),
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(IpcError {
+                outcome: IpcOutcome::Unknown,
+                kind: io::ErrorKind::TimedOut
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn broken_pipe_during_write_is_unknown() {
+        let (mut writer, reader) = duplex(64);
+        drop(reader);
+        let result = write_frame(
+            &mut writer,
+            b"request",
+            Instant::now() + std::time::Duration::from_secs(1),
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(IpcError {
+                outcome: IpcOutcome::Unknown,
+                kind: io::ErrorKind::BrokenPipe
+            })
+        ));
+    }
 
     #[tokio::test]
     async fn truncated_response_is_unknown_eof() {
