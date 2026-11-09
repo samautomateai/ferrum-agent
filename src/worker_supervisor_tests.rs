@@ -1,191 +1,54 @@
+//! Error-contract regressions after removing the legacy thread/channel transport.
+//! Subprocess fault-injection and deadline tests live in tests/tokio_supervisor.rs.
 use super::*;
 use crate::error_contract::{ErrorOutcome, RuntimeFailure};
+use crate::worker_supervisor::SupervisorError;
+use std::io;
 
-fn dummy_request() -> Request {
-    Request {
+fn mapped(error: SupervisorError) -> RuntimeFailure {
+    map_supervisor_error(error)
+}
+
+#[test]
+fn pre_dispatch_failures_are_not_started_and_not_retryable() {
+    for kind in [io::ErrorKind::InvalidInput, io::ErrorKind::BrokenPipe] {
+        let failure = mapped(SupervisorError::NotStarted(kind));
+        assert_eq!(failure.outcome(), ErrorOutcome::NotStarted);
+        assert!(!failure.retryable());
+    }
+}
+
+#[test]
+fn in_flight_timeouts_have_unknown_outcome() {
+    let failure = mapped(SupervisorError::Unknown(io::ErrorKind::TimedOut));
+    assert_eq!(failure.code(), "FERRUM-WORKER-TIMEOUT");
+    assert_eq!(failure.outcome(), ErrorOutcome::Unknown);
+    assert!(!failure.retryable());
+}
+
+#[test]
+fn broken_connection_never_implies_safe_replay() {
+    for error in [SupervisorError::Unknown(io::ErrorKind::BrokenPipe), SupervisorError::Closed] {
+        let failure = mapped(error);
+        assert_eq!(failure.outcome(), ErrorOutcome::Unknown);
+        assert!(!failure.retryable());
+    }
+}
+
+#[test]
+fn internal_io_errors_are_not_exposed_in_public_contract() {
+    let failure = mapped(SupervisorError::Unknown(io::ErrorKind::PermissionDenied));
+    assert!(!failure.to_string().contains("PermissionDenied"));
+    assert!(!format!("{failure:?}").contains("PermissionDenied"));
+}
+
+#[test]
+fn oversized_requests_are_rejected_before_worker_dispatch() {
+    let request = Request {
         name: Some("echo".to_owned()),
-        arguments: Value::Null,
+        arguments: Value::String("x".repeat(MAX_PROTOCOL_BYTES)),
         event: None,
         shutdown: false,
-    }
-}
-
-#[test]
-fn disconnected_writer_does_not_start_request() {
-    let (writes, reader) = mpsc::sync_channel(1);
-    drop(reader);
-    let (_result_sender, write_results) = mpsc::sync_channel(1);
-    let (_reply_sender, replies) = mpsc::sync_channel(1);
-    let mut process = Process {
-        child: Command::new(std::env::current_exe().unwrap())
-            .arg("--help")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap(),
-        writes,
-        write_results,
-        replies,
     };
-    let failure = process
-        .request(&dummy_request(), Duration::from_secs(1))
-        .err()
-        .expect("expected worker failure");
-    let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
-    assert_eq!(typed.outcome(), ErrorOutcome::NotStarted);
-    assert!(!typed.retryable());
-}
-
-#[test]
-fn writer_acknowledgement_timeout_is_bounded() {
-    let (writes, _reader) = mpsc::sync_channel(1);
-    let (_result_sender, write_results) = mpsc::sync_channel(1);
-    let (_reply_sender, replies) = mpsc::sync_channel(1);
-    let mut process = Process {
-        child: Command::new(std::env::current_exe().unwrap())
-            .arg("--help")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap(),
-        writes,
-        write_results,
-        replies,
-    };
-    let start = Instant::now();
-    let failure = process
-        .request(&dummy_request(), Duration::from_millis(20))
-        .err()
-        .expect("expected worker failure");
-    let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
-    assert_eq!(typed.code(), "FERRUM-WORKER-TIMEOUT");
-    assert_eq!(typed.outcome(), ErrorOutcome::Unknown);
-    assert!(start.elapsed() < Duration::from_secs(2));
-}
-
-#[test]
-fn completed_write_without_response_times_out() {
-    let (writes, _reader) = mpsc::sync_channel(1);
-    let (result_sender, write_results) = mpsc::sync_channel(1);
-    result_sender.send(Ok(())).unwrap();
-    let (_reply_sender, replies) = mpsc::sync_channel(1);
-    let mut process = Process {
-        child: Command::new(std::env::current_exe().unwrap())
-            .arg("--help")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap(),
-        writes,
-        write_results,
-        replies,
-    };
-    let failure = process
-        .request(&dummy_request(), Duration::from_millis(20))
-        .err()
-        .expect("expected worker failure");
-    let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
-    assert_eq!(typed.code(), "FERRUM-WORKER-TIMEOUT");
-    assert_eq!(typed.outcome(), ErrorOutcome::Unknown);
-}
-
-fn simulated_process(
-    write_result: std::io::Result<()>,
-    response: Option<Result<Response>>,
-) -> Process {
-    let (writes, writer_rx) = mpsc::sync_channel(1);
-    let (write_tx, write_results) = mpsc::sync_channel(1);
-    let (reply_tx, replies) = mpsc::sync_channel(1);
-    thread::spawn(move || {
-        if writer_rx.recv().is_ok() {
-            let _ = write_tx.send(write_result);
-        }
-    });
-    thread::spawn(move || {
-        if let Some(reply) = response {
-            let _ = reply_tx.send(reply);
-        }
-    });
-    Process {
-        child: Command::new(std::env::current_exe().unwrap())
-            .arg("--help")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap(),
-        writes,
-        write_results,
-        replies,
-    }
-}
-
-#[test]
-fn failed_worker_write_has_unknown_side_effect_outcome() {
-    let mut process = simulated_process(
-        Err(std::io::Error::new(
-            std::io::ErrorKind::BrokenPipe,
-            "secret internal write failure",
-        )),
-        None,
-    );
-    let failure = process
-        .request(&dummy_request(), Duration::from_secs(1))
-        .err()
-        .unwrap();
-    let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
-    assert_eq!(typed.outcome(), ErrorOutcome::Unknown);
-    assert!(!typed.retryable());
-    assert!(!typed.to_string().contains("secret"));
-}
-
-#[test]
-fn malformed_worker_response_is_not_replayed() {
-    let mut process = simulated_process(
-        Ok(()),
-        Some(Err(anyhow::anyhow!("malformed worker response"))),
-    );
-    let failure = process
-        .request(&dummy_request(), Duration::from_secs(1))
-        .err()
-        .unwrap();
-    assert!(failure.to_string().contains("malformed worker response"));
-}
-
-#[test]
-fn explicit_worker_error_has_sanitized_public_contract() {
-    let mut process = simulated_process(
-        Ok(()),
-        Some(Ok(Response {
-            manifest: None,
-            result: None,
-            error: Some("private extension failure".to_owned()),
-        })),
-    );
-    let failure = process
-        .request(&dummy_request(), Duration::from_secs(1))
-        .err()
-        .unwrap();
-    let typed = failure.downcast_ref::<RuntimeFailure>().unwrap();
-    assert_eq!(typed.outcome(), ErrorOutcome::Unknown);
-    assert!(!typed.to_string().contains("private"));
-}
-
-#[test]
-fn successful_worker_response_is_returned_without_retry() {
-    let mut process = simulated_process(
-        Ok(()),
-        Some(Ok(Response {
-            manifest: None,
-            result: Some(serde_json::json!({"ok":true})),
-            error: None,
-        })),
-    );
-    let response = process
-        .request(&dummy_request(), Duration::from_secs(1))
-        .unwrap();
-    assert_eq!(response.result, Some(serde_json::json!({"ok":true})));
+    assert!(serde_json::to_vec(&request).unwrap().len() > MAX_PROTOCOL_BYTES);
 }
