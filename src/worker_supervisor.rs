@@ -524,6 +524,35 @@ fn shutdown_acknowledged(response: &[u8]) -> bool {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    #[test]
+    fn native_fallback_terminates_and_reaps_without_tokio_runtime() {
+        let mut command = std::process::Command::new("sleep");
+        command.arg("30");
+        // No shell or descendants: the direct process is the waitpid target.
+        let child = command.spawn().expect("spawn direct child");
+        let pid = child.id();
+        native_kill_and_reap(pid).expect("native fallback must reap direct child");
+        // waitpid consumed the child status; a second wait must report ECHILD.
+        let mut status = 0_i32;
+        unsafe extern "C" {
+            fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
+        }
+        assert_eq!(unsafe { waitpid(pid as i32, &mut status, 1) }, -1);
+        drop(child);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_fallback_terminates_and_waits_without_tokio_runtime() {
+        let mut child = std::process::Command::new("cmd")
+            .args(["/C", "ping -n 30 127.0.0.1 >NUL"])
+            .spawn()
+            .expect("spawn direct child");
+        native_kill_and_reap(child.id()).expect("native fallback must wait for child");
+        assert!(child.try_wait().expect("read child status").is_some());
+    }
+
     #[test]
     fn lifecycle_record_has_fixed_safe_fields() {
         let event = lifecycle_record("exchange_fault", Some(1234), Some(io::ErrorKind::TimedOut));
