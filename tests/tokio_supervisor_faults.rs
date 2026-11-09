@@ -504,10 +504,23 @@ fn runtime_teardown_terminates_direct_worker_process() {
         worker
     });
     let pid = worker.child_id().expect("worker PID");
+    let mut reaped = worker.reap_observer();
     // The supervisor is deliberately still alive when the runtime stops.
     // This exercises Tokio's kill-on-drop fallback, not normal actor cleanup.
     runtime.shutdown_timeout(Duration::from_millis(200));
     drop(worker);
+    // The owner must report completion of Child::wait, not just disappearance
+    // from the OS process table. This observer is independent of the old runtime.
+    let wait_runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    wait_runtime.block_on(async {
+        tokio::time::timeout(Duration::from_secs(5), reaped.wait_for(|status| status.is_some()))
+            .await
+            .expect("independent OS wait timed out")
+            .expect("process owner exited without recording wait");
+    });
     let started = std::time::Instant::now();
     loop {
         #[cfg(target_os = "linux")]
