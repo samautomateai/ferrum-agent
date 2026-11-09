@@ -6,7 +6,7 @@ use crate::worker_lifecycle::{WorkerEvent, WorkerLifecycle};
 use std::{io, path::Path, process::Stdio, time::Duration};
 use tokio::{
     process::{Child, Command},
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, watch},
     task::JoinHandle,
     time::{timeout_at, Instant},
 };
@@ -46,6 +46,8 @@ pub struct WorkerSupervisor {
     sender: mpsc::Sender<CommandMessage>,
     actor: Option<JoinHandle<()>>,
     runtime: tokio::runtime::Handle,
+    child_id: Option<u32>,
+    exited: watch::Receiver<bool>,
 }
 
 impl WorkerSupervisor {
@@ -69,13 +71,31 @@ impl WorkerSupervisor {
             .stdout
             .take()
             .ok_or(SupervisorError::NotStarted(io::ErrorKind::BrokenPipe))?;
+        let child_id = child.id();
         let (sender, receiver) = mpsc::channel(COMMAND_CAPACITY);
-        let actor = tokio::spawn(actor_loop(child, FramedIpc::new(stdin, stdout), receiver));
+        let (exit_sender, exited) = watch::channel(false);
+        let actor = tokio::spawn(async move {
+            actor_loop(child, FramedIpc::new(stdin, stdout), receiver).await;
+            let _ = exit_sender.send(true);
+        });
         Ok(Self {
             sender,
             actor: Some(actor),
             runtime: tokio::runtime::Handle::current(),
+            child_id,
+            exited,
         })
+    }
+
+    /// PID of the direct worker process, for diagnostics and reaping tests.
+    pub fn child_id(&self) -> Option<u32> {
+        self.child_id
+    }
+
+    /// Completes when the actor finishes its direct-child cleanup path.
+    /// This does not establish descendant process-tree containment.
+    pub fn exit_observer(&self) -> watch::Receiver<bool> {
+        self.exited.clone()
     }
 
     pub async fn exchange(

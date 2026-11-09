@@ -40,7 +40,11 @@ async fn supervisor_exchanges_multiple_frames_and_shuts_down() {
         let decoded: serde_json::Value = serde_json::from_slice(&response).unwrap();
         assert_eq!(decoded["result"]["value"], value);
     }
+    let mut exited = worker.exit_observer();
+    let pid = worker.child_id().expect("worker PID must be observable");
+    assert!(pid > 0);
     worker.shutdown().await.unwrap();
+    assert!(*exited.borrow_and_update(), "actor must finish child wait before shutdown returns");
 }
 
 #[tokio::test]
@@ -181,7 +185,12 @@ async fn timed_out_inflight_request_has_unknown_outcome_and_is_not_replayed() {
     ));
     // The supervisor must not retry an invocation whose side effects are uncertain.
     // Dropping the sender lets the actor finish its failed exchange and reap the child.
+    let mut exited = worker.exit_observer();
     drop(worker);
+    tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
+        .await
+        .expect("timed-out worker actor did not finish cleanup")
+        .expect("cleanup observer closed without completion");
 }
 
 #[tokio::test]
@@ -215,9 +224,13 @@ fn supervisor_drop_outside_async_context_does_not_panic() {
         .block_on(async { WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap() });
     // A synchronous facade drops the supervisor without an entered Tokio context.
     // The supervisor must use its captured runtime handle for cleanup.
+    let mut exited = worker.exit_observer();
     drop(worker);
     runtime.block_on(async {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
+            .await
+            .expect("dropped worker actor did not complete cleanup")
+            .expect("cleanup observer closed without completion");
     });
 }
 
@@ -288,4 +301,43 @@ async fn malformed_json_request_closes_worker_without_replay() {
         second,
         Err(SupervisorError::Closed) | Err(SupervisorError::Unknown(_))
     ));
+}
+
+#[tokio::test]
+async fn worker_event_roundtrip_does_not_corrupt_invocation() {
+    let source = extension();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let event = worker
+        .exchange(br#"{"name":null,"arguments":{},"event":"custom"}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let decoded: serde_json::Value = serde_json::from_slice(&event).unwrap();
+    assert!(decoded["error"].is_null());
+    let invoke = worker
+        .exchange(br#"{"name":"echo","arguments":{"after":"event"}}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let decoded: serde_json::Value = serde_json::from_slice(&invoke).unwrap();
+    assert_eq!(decoded["result"]["after"], "event");
+    worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn worker_crash_completes_actor_cleanup() {
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(source.path(), "not valid javascript !").unwrap();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let mut exited = worker.exit_observer();
+    assert!(matches!(
+        worker.exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline()).await,
+        Err(SupervisorError::Unknown(_))
+    ));
+    tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
+        .await
+        .expect("crashed worker cleanup did not finish")
+        .expect("cleanup observer closed without completion");
 }

@@ -2,7 +2,7 @@
 
 > Baseline: 2026-11-09. This is the authoritative *working checklist*, not a claim of release readiness.
 > Update it in the **same commit or PR** as each material implementation change. Check a box only when its acceptance criteria are satisfied and link evidence (test, CI run, PR, benchmark or release artifact).
-> Current baseline: PR #10, commit `c0d55c8`, CI run [42581802633](https://github.com/samautomateai/ferrum-agent/actions/runs/42581802633) — all six jobs green. This proves configured CI checks, not the remaining runtime fault-injection requirements.
+> Current baseline: PR #10, commit `c0d55c8`, CI run [42584693887](https://github.com/samautomateai/ferrum-agent/actions/runs/42584693887) — all six jobs green. This proves configured CI checks, not the remaining runtime fault-injection requirements.
 > Scope: standalone Rust-native coding agent first; Pi/OMP compatibility and advanced orchestration thereafter. Docker packaging is parked.
 
 ## Status conventions and update protocol
@@ -117,6 +117,9 @@
 5. Merge M3.1; then scope M3.2 OS containment before enabling untrusted extensions.
 
 ## Checkpoint log
+
+Pending CI: supervisor now exposes direct-child PID and an actor-cleanup observer; tests assert shutdown, crash, timeout and Drop actor completion, plus event/invoke continuity. These prove actor cleanup completion, **not independently OS-verified reaping or descendant containment**. Keep the full reaping criterion unchecked until OS-liveness evidence and runtime-teardown guarantees exist.
+
 
 | Date | Commit / PR | Evidence | Decision / remaining risk |
 | --- | --- | --- | --- |

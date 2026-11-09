@@ -18,3 +18,10 @@ Status: **draft / CI-green; acceptance incomplete**. See [Ferrum readiness check
 5. M3.2 still owns Windows Job Object and Linux process-group/cgroup descendant containment; killing a direct child does not imply tree cleanup.
 
 Do not merge until these are resolved; do not relax quality gates or add Docker requirements.
+
+## Cohesive M3.1 verification batch (pending CI)
+
+- Expose direct worker PID and actor exit observer without changing the IPC wire format.
+- Assert actor cleanup completion after graceful shutdown, worker crash, timeout and synchronous Drop.
+- Verify event followed by invoke against the real worker binary.
+- **Not yet proven:** OS-level PID disappearance, runtime teardown, blocked writes/shutdown and descendant containment. These remain exit blockers.
