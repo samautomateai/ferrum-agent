@@ -196,6 +196,8 @@ pub struct WorkerSupervisor {
     child_id: Option<u32>,
     #[allow(dead_code)]
     exited: watch::Receiver<bool>,
+    #[allow(dead_code)]
+    reaped: watch::Receiver<Option<ExitStatus>>,
 }
 
 impl WorkerSupervisor {
@@ -221,6 +223,7 @@ impl WorkerSupervisor {
             .ok_or(SupervisorError::NotStarted(io::ErrorKind::BrokenPipe))?;
         let child_id = child.id();
         let owner = ProcessOwner::start(child)?;
+        let reaped = owner.status.clone();
         lifecycle_event("spawned", child_id, None);
         let (sender, receiver) = mpsc::channel(COMMAND_CAPACITY);
         let (exit_sender, exited) = watch::channel(false);
@@ -235,6 +238,7 @@ impl WorkerSupervisor {
             runtime: tokio::runtime::Handle::current(),
             child_id,
             exited,
+            reaped,
         })
     }
 
@@ -249,6 +253,12 @@ impl WorkerSupervisor {
     #[allow(dead_code)]
     pub fn exit_observer(&self) -> watch::Receiver<bool> {
         self.exited.clone()
+    }
+
+    /// Reports an OS wait completion, independent of the shared Tokio runtime.
+    #[allow(dead_code)]
+    pub fn reap_observer(&self) -> watch::Receiver<Option<ExitStatus>> {
+        self.reaped.clone()
     }
 
     pub async fn exchange(
