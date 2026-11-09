@@ -1,6 +1,6 @@
 # M3.1 Tokio transport integration status (PR #10)
 
-Status: **draft / unverified**. The production `ExtensionWorker` synchronous facade now delegates to the shared Tokio supervisor. The old per-worker writer and reader threads have been removed from the facade. This is not yet validated by CI.
+Status: **draft / CI-green; acceptance incomplete**. See [Ferrum readiness checkpoint](ferrum-readiness-checkpoint.md). The production `ExtensionWorker` synchronous facade now delegates to the shared Tokio supervisor. The old per-worker writer and reader threads have been removed from the facade. The configured CI matrix passed at commit `c0d55c8` ([run 42581802633](https://github.com/samautomateai/ferrum-agent/actions/runs/42581802633)); subprocess fault-injection and process-reaping guarantees are not yet proven.
 
 ## Implemented on branch
 - Register the Tokio transport and lifecycle modules in the production binary.
@@ -11,7 +11,7 @@ Status: **draft / unverified**. The production `ExtensionWorker` synchronous fac
 - Add real-worker concurrency, repeated start/stop, deadline and synchronous-drop regression tests.
 
 ## Blockers before merging
-1. CI must compile the new facade and pass rustfmt, clippy, security checks, >=90% line coverage, Linux amd64/arm64 and Windows amd64. Latest runs have been action_required or cancelled; no green evidence.
+1. **CI verified at baseline:** rustfmt, quality, tests, Linux amd64/arm64 and Windows amd64 passed ([run 42581802633](https://github.com/samautomateai/ferrum-agent/actions/runs/42581802633)). Record the actual measured coverage figure before milestone sign-off; keep subsequent commits green.
 2. Prove that the supervisor always reaps the direct child after cancellation, shutdown timeout, and Drop; runtime shutdown can still interrupt an async reaper. Do not claim guaranteed cleanup yet.
 3. Add subprocess fault-injection for broken pipe, malformed and truncated responses, and blocked shutdown.
 4. Validate actual CLI extension compatibility and no regression in event and invoke behavior.
