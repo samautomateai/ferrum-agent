@@ -355,3 +355,84 @@ async fn aborted_queued_request_is_skipped_without_poisoning_worker() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn blocked_response_times_out_and_reaps_direct_child() {
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        source.path(),
+        "pi.registerTool({name:'block',execute:()=>{while(true){}}});",
+    )
+    .unwrap();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let pid = worker.child_id().expect("worker PID");
+    let mut exited = worker.exit_observer();
+    let started = Instant::now();
+    let result = worker
+        .exchange(
+            br#"{"name":"block","arguments":{}}"#.to_vec(),
+            started + Duration::from_millis(200),
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(SupervisorError::Unknown(io::ErrorKind::TimedOut))
+    ));
+    assert!(started.elapsed() < Duration::from_secs(5));
+    tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
+        .await
+        .expect("blocked-response actor cleanup timed out")
+        .expect("exit observer closed");
+    #[cfg(target_os = "linux")]
+    assert_linux_child_reaped(pid);
+    #[cfg(target_os = "windows")]
+    assert_windows_child_reaped(pid);
+    let followup = worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await;
+    assert!(matches!(followup, Err(SupervisorError::Closed)));
+}
+
+#[tokio::test]
+async fn dropping_supervisor_while_response_blocked_reaps_child() {
+    use std::sync::Arc;
+
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        source.path(),
+        "pi.registerTool({name:'block',execute:()=>{while(true){}}});",
+    )
+    .unwrap();
+    let worker = Arc::new(WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap());
+    worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let pid = worker.child_id().expect("worker PID");
+    let mut exited = worker.exit_observer();
+    let request_worker = Arc::clone(&worker);
+    let request = tokio::spawn(async move {
+        request_worker
+            .exchange(
+                br#"{"name":"block","arguments":{}}"#.to_vec(),
+                Instant::now() + Duration::from_millis(300),
+            )
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    request.abort();
+    let _ = request.await;
+    drop(worker);
+    tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
+        .await
+        .expect("drop must terminate blocked child")
+        .expect("exit observer closed");
+    #[cfg(target_os = "linux")]
+    assert_linux_child_reaped(pid);
+    #[cfg(target_os = "windows")]
+    assert_windows_child_reaped(pid);
+}
