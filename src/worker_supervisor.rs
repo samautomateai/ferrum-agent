@@ -197,20 +197,25 @@ async fn actor_loop(
                 deadline,
                 reply,
             } => {
-                let result = if reply.is_closed() || Instant::now() >= deadline {
-                    Err(SupervisorError::NotStarted(io::ErrorKind::TimedOut))
-                } else if lifecycle.transition(WorkerEvent::RequestAccepted).is_err() {
-                    Err(SupervisorError::Closed)
+                // Expired or abandoned queued requests were never dispatched.
+                // They must not fault or terminate an otherwise healthy worker.
+                if reply.is_closed() || Instant::now() >= deadline {
+                    let _ = reply.send(Err(SupervisorError::NotStarted(
+                        io::ErrorKind::TimedOut,
+                    )));
+                    continue;
+                }
+                if lifecycle.transition(WorkerEvent::RequestAccepted).is_err() {
+                    let _ = reply.send(Err(SupervisorError::Closed));
+                    break;
+                }
+                let result = ipc.exchange(&payload, deadline).await.map_err(Into::into);
+                if result.is_ok() {
+                    let _ = lifecycle.transition(WorkerEvent::RequestCompleted);
                 } else {
-                    let result = ipc.exchange(&payload, deadline).await.map_err(Into::into);
-                    if result.is_ok() {
-                        let _ = lifecycle.transition(WorkerEvent::RequestCompleted);
-                    } else {
-                        let _ = lifecycle.transition(WorkerEvent::Fault);
-                    }
-                    result
-                };
-                // A caller that abandons an in-flight request cannot trigger replay.
+                    let _ = lifecycle.transition(WorkerEvent::Fault);
+                }
+                // A dispatched request may have side effects: never replay it.
                 let failed = result.is_err();
                 let _ = reply.send(result);
                 if failed {

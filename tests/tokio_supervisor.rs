@@ -530,3 +530,46 @@ async fn rejected_request_keeps_original_child_alive_for_valid_followup() {
     assert_eq!(worker.child_id(), Some(pid));
     worker.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn cancelled_queued_request_does_not_terminate_healthy_worker() {
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        source.path(),
+        "pi.registerTool({name:'pause',execute:()=>{const end=Date.now()+250;while(Date.now()<end){};return 'done';}});",
+    )
+    .unwrap();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let first = worker.exchange(
+        br#"{"name":"pause","arguments":{}}"#.to_vec(),
+        deadline(),
+    );
+    let queued = async {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        worker
+            .exchange(
+                br#"{"name":null,"arguments":null}"#.to_vec(),
+                Instant::now() + Duration::from_millis(30),
+            )
+            .await
+    };
+    let (first_result, queued_result) = tokio::join!(first, queued);
+    assert!(first_result.is_ok(), "first dispatched request should succeed");
+    assert!(matches!(
+        queued_result,
+        Err(SupervisorError::Unknown(io::ErrorKind::TimedOut))
+    ));
+    // The queued request timed out before actor dispatch. Its stale command
+    // must be skipped without poisoning the worker.
+    let response = worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let decoded: serde_json::Value = serde_json::from_slice(&response).unwrap();
+    assert!(decoded["manifest"].is_object());
+    worker.shutdown().await.unwrap();
+}

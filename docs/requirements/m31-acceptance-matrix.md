@@ -6,7 +6,7 @@ Status: **working evidence inventory, not approval**. Source: [requirements](m31
 | --- | --- | --- | --- | --- |
 | M31-R1 | R1 | `src/supervisor_runtime.rs` unit tests | Confirm sync facade integration | Implemented, not accepted |
 | M31-R2 | R2 | `src/worker_supervisor.rs`, actor observer tests | Runtime teardown and no leaked tasks | Partial |
-| M31-R3 | R3 | `src/async_ipc.rs`, frame and deadline tests | Blocked stdin, queue saturation | Partial |
+| M31-R3 | R3 | `src/async_ipc.rs`, frame and deadline tests | Blocked stdin, queue saturation; cancelled queued-request regression pending CI | Partial |
 | M31-R4 | R4 | `tests/tokio_supervisor.rs` timeout, crash follow-up and no-replay tests | Deterministic post-write cancellation fixture | Partial |
 | M31-R5 | R5 | Actor cleanup and Linux `/proc` liveness tests | Windows OS liveness; runtime teardown | Partial |
 | M31-R6 | R8 | Real worker handshake/invoke/event/shutdown tests | Full CLI compatibility coverage | Partial |

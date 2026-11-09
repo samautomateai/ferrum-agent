@@ -42,3 +42,7 @@ Do not merge until these are resolved; do not relax quality gates or add Docker 
 ## Failure contract regression batch (pending CI)
 
 Add cross-platform real-worker tests for spawn failure, post-crash no-restart, and pre-dispatch invalid frame followed by a healthy request. These are incremental fault-contract checks, not full M3.1 completion. Requirements/design approval and blocked I/O/runtime-teardown work remain pending.
+
+## Queued cancellation isolation (pending CI)
+
+A queued command whose caller has already timed out must be skipped without faulting the worker: previously the actor treated any error, including pre-dispatch `NotStarted`, as fatal. The supervisor now continues past abandoned/expired queue entries; a real-worker test queues a short-deadline request behind a busy invocation and verifies the next valid request succeeds. This does not resolve blocked stdin or runtime teardown.
