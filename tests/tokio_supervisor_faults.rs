@@ -521,7 +521,9 @@ fn runtime_teardown_terminates_direct_worker_process() {
             let listing = String::from_utf8_lossy(&output.stdout);
             !listing.lines().any(|line| {
                 let fields: Vec<_> = line.trim().trim_matches('"').split("\",\"").collect();
-                fields.get(1).is_some_and(|field| field.trim_matches('"') == pid.to_string())
+                fields
+                    .get(1)
+                    .is_some_and(|field| field.trim_matches('"') == pid.to_string())
             })
         };
         if gone {
