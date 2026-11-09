@@ -219,3 +219,23 @@ async fn busy_worker_shutdown_is_bounded_and_cleanup_completes() {
         .expect("busy worker cleanup timed out")
         .expect("cleanup observer closed");
 }
+
+
+#[tokio::test]
+async fn try_exchange_processes_real_worker_request_without_waiting_for_queue_slot() {
+    let source = extension();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let response = worker
+        .try_exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let decoded: serde_json::Value = serde_json::from_slice(&response).unwrap();
+    assert!(decoded["manifest"].is_object());
+    assert!(matches!(
+        worker
+            .try_exchange(b"invalid\nframe".to_vec(), deadline())
+            .await,
+        Err(SupervisorError::NotStarted(io::ErrorKind::InvalidInput))
+    ));
+    worker.shutdown().await.unwrap();
+}

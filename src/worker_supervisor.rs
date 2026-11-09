@@ -134,6 +134,39 @@ impl WorkerSupervisor {
             .map_err(|_| SupervisorError::Unknown(io::ErrorKind::BrokenPipe))?
     }
 
+    /// Submit a request without waiting for queue capacity. A saturated queue
+    /// rejects before dispatch, so the caller can safely retry later.
+    /// Once enqueued, a timeout is conservative: the worker may have run it.
+    pub async fn try_exchange(
+        &self,
+        payload: Vec<u8>,
+        deadline: Instant,
+    ) -> Result<Vec<u8>, SupervisorError> {
+        if Instant::now() >= deadline {
+            return Err(SupervisorError::NotStarted(io::ErrorKind::TimedOut));
+        }
+        if payload.len() > 2 * 1024 * 1024 || payload.contains(&b'\n') {
+            return Err(SupervisorError::NotStarted(io::ErrorKind::InvalidInput));
+        }
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .try_send(CommandMessage::Exchange {
+                payload,
+                deadline,
+                reply,
+            })
+            .map_err(|error| match error {
+                mpsc::error::TrySendError::Full(_) => {
+                    SupervisorError::NotStarted(io::ErrorKind::WouldBlock)
+                }
+                mpsc::error::TrySendError::Closed(_) => SupervisorError::Closed,
+            })?;
+        timeout_at(deadline, response)
+            .await
+            .map_err(|_| SupervisorError::Unknown(io::ErrorKind::TimedOut))?
+            .map_err(|_| SupervisorError::Unknown(io::ErrorKind::BrokenPipe))?
+    }
+
     pub async fn shutdown(mut self) -> Result<(), SupervisorError> {
         let (reply, response) = oneshot::channel();
         let deadline = Instant::now() + SHUTDOWN_GRACE;
