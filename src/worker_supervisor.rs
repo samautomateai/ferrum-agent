@@ -12,6 +12,18 @@ use tokio::{
 };
 
 const COMMAND_CAPACITY: usize = 16;
+
+/// Emit only fixed lifecycle labels and error categories. Never serialize IPC payloads.
+fn lifecycle_event(event: &'static str, pid: Option<u32>, error: Option<io::ErrorKind>) {
+    let record = serde_json::json!({
+        "component": "worker_supervisor",
+        "event": event,
+        "pid": pid,
+        "error_kind": error.map(|kind| format!("{kind:?}")),
+    });
+    eprintln!("{record}");
+}
+
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
 #[derive(Debug)]
@@ -76,10 +88,12 @@ impl WorkerSupervisor {
             .take()
             .ok_or(SupervisorError::NotStarted(io::ErrorKind::BrokenPipe))?;
         let child_id = child.id();
+        lifecycle_event("spawned", child_id, None);
         let (sender, receiver) = mpsc::channel(COMMAND_CAPACITY);
         let (exit_sender, exited) = watch::channel(false);
         let actor = tokio::spawn(async move {
             actor_loop(child, FramedIpc::new(stdin, stdout), receiver).await;
+            lifecycle_event("actor_exited", child_id, None);
             let _ = exit_sender.send(true);
         });
         Ok(Self {
@@ -186,6 +200,7 @@ impl WorkerSupervisor {
             .map_err(|_| SupervisorError::Unknown(io::ErrorKind::TimedOut))?
             .map_err(|_| SupervisorError::Closed)?;
         let actor = self.actor.take().ok_or(SupervisorError::Closed)?;
+        lifecycle_event("shutdown_acknowledged", self.child_id, None);
         // Preserve ownership on deadline expiry: dropping a JoinHandle detaches it.
         // The reaper owns the task until it exits, even if the caller times out.
         let mut actor = actor;
@@ -208,6 +223,7 @@ impl Drop for WorkerSupervisor {
         // Closing the channel lets the actor kill and reap its child on exit.
         // Keep the JoinHandle owned by a reaper rather than detaching it.
         if let Some(actor) = self.actor.take() {
+            lifecycle_event("supervisor_dropped", self.child_id, None);
             self.runtime.spawn(async move {
                 let _ = actor.await;
             });
@@ -253,6 +269,7 @@ async fn actor_loop(
                 let failed = result.is_err();
                 let _ = reply.send(result);
                 if failed {
+                    lifecycle_event("exchange_fault", child.id(), None);
                     break;
                 }
             }
@@ -284,6 +301,7 @@ async fn actor_loop(
                     _ => Err(SupervisorError::Unknown(io::ErrorKind::InvalidData)),
                 };
                 if result.is_err() {
+                    lifecycle_event("shutdown_fault", child.id(), None);
                     let _ = lifecycle.transition(WorkerEvent::Fault);
                 }
                 let _ = reply.send(result);
@@ -311,6 +329,19 @@ fn shutdown_acknowledged(response: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lifecycle_record_has_fixed_safe_fields() {
+        let event = serde_json::json!({
+            "component": "worker_supervisor",
+            "event": "exchange_fault",
+            "pid": 1234,
+            "error_kind": "TimedOut",
+        });
+        assert_eq!(event.as_object().unwrap().len(), 4);
+        assert!(event.get("payload").is_none());
+        assert!(event.get("source").is_none());
+    }
 
     #[test]
     fn dropped_reply_is_detected_before_dispatch() {
