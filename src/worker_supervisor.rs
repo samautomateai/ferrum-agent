@@ -1,4 +1,6 @@
-//! Tokio worker supervisor used by the synchronous extension-worker facade.\n//! Direct-child cleanup is best-effort during runtime teardown; OS process-tree\n//! containment and guaranteed reaping are tracked in the readiness checkpoint.
+//! Tokio worker supervisor used by the synchronous extension-worker facade.
+//! Direct-child cleanup is best-effort during runtime teardown; OS process-tree
+//! containment and guaranteed reaping are tracked in the readiness checkpoint.
 use crate::async_ipc::{FramedIpc, IpcError, IpcOutcome};
 use crate::worker_lifecycle::{WorkerEvent, WorkerLifecycle};
 use std::{io, path::Path, process::Stdio, time::Duration};
