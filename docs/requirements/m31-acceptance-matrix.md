@@ -1,31 +1,32 @@
 # M3.1 requirement acceptance matrix
 
-Status: **working evidence inventory, not approval**. Source: [requirements](m31-worker-supervision.md) and [design](../design/m31-worker-supervision.md).
+Status: **implementation evidence verified; acceptance pending**. Updated 2026-11-09.
+Sources: [requirements](m31-worker-supervision.md) and [design](../design/m31-worker-supervision.md).
 
-| ID | OpenSpec | Evidence present | Missing evidence / decision | State |
-| --- | --- | --- | --- | --- |
-| M31-R1 | R1 | `src/supervisor_runtime.rs` unit tests | Confirm sync facade integration | Implemented, not accepted |
-| M31-R2 | R2 | `src/worker_supervisor.rs`, actor observer tests | Runtime teardown and no leaked tasks | Partial |
-| M31-R3 | R3 | `src/async_ipc.rs`, frame and deadline tests | Blocked stdin, queue saturation; cancelled queued-request regression pending CI | Partial |
-| M31-R4 | R4 | `tests/tokio_supervisor.rs` timeout, crash follow-up and no-replay tests | Deterministic post-write cancellation fixture | Partial |
-| M31-R5 | R5 | Actor cleanup and Linux `/proc` liveness tests | Windows tasklist liveness tests pending CI; runtime teardown | Partial |
-| M31-R6 | R8 | Real worker handshake/invoke/event/shutdown tests | Full CLI compatibility coverage | Partial |
-| M31-R7 | R7 | Sanitized error contract | Structured tracing and secret-redaction tests | Partial |
-| M31-R8 | R6 | Explicit M3.2 deferral | Confirm handoff during sign-off | Proposed |
-| M31-N1 | R2-R3 | Bounded channel/frame/deadline | Blocked I/O; busy-worker shutdown regression pending CI | Partial |
-| M31-N2 | Acceptance matrix | CI platform jobs | Windows tasklist liveness tests pending CI | Partial |
-| M31-N3 | Acceptance matrix | CI quality/test jobs | Actual measured line coverage >=90% | Unverified |
-| M31-N4 | Acceptance matrix | Crash/malformed/timeout/spawn-failure tests | Broken pipe, EOF, truncated response, blocked shutdown and teardown | Partial |
+Validated CI baseline: [run 42688251419](https://github.com/samautomateai/ferrum-agent/actions/runs/42688251419) at commit `fc46cd4`: rustfmt, quality, tests, Linux AMD64, Linux ARM64, Windows AMD64 all passed.
 
-Do not mark any row accepted without explicit maintainer sign-off and linked evidence. Current CI baseline: [42592057581](https://github.com/samautomateai/ferrum-agent/actions/runs/42592057581); inspect job results before claiming this run is fully green.
+| ID | Evidence | Remaining requirement | Status |
+| --- | --- | --- | --- |
+| M31-R1 | `src/supervisor_runtime.rs`, sync bridge tests | Maintainer acceptance | Implemented; unaccepted |
+| M31-R2 | Bounded supervisor actor, cancellation and Drop tests | Runtime-independent direct-child reap guarantee | Partial |
+| M31-R3 | 2 MiB framing, deadlines, bounded queue, blocked-write tests | Maintainer acceptance | Implemented; unaccepted |
+| M31-R4 | Pre-dispatch versus dispatched cancellation, no replay, fault tests | Maintainer acceptance | Implemented; unaccepted |
+| M31-R5 | Graceful shutdown, OS liveness, runtime teardown regression | Prove direct-child wait/reap after runtime teardown, not merely disappearance | Partial |
+| M31-R6 | Real worker handshake, invoke and shutdown tests | Maintainer compatibility sign-off | Implemented; unaccepted |
+| M31-R7 | Sanitized error kinds | Structured payload-free tracing and redaction verification | Partial |
+| M31-R8 | Direct-child scope explicitly documented | Confirm M3.2 descendant handoff | Proposed |
+| M31-N1 | Bounded channel/frame; blocked write/read and deadline tests | Maintainer acceptance | Implemented; unaccepted |
+| M31-N2 | Three supported OS/architecture CI jobs green | Maintainer acceptance | Implemented; unaccepted |
+| M31-N3 | Rustfmt, quality and test jobs green | Publish measured line coverage >=90%; CI pass alone does not establish coverage | Unverified |
+| M31-N4 | Truncated, oversized, blocked read/write, broken pipe, crash, cancellation and teardown tests | Runtime-independent reaping proof | Partial |
 
-## Cohesive fault-contract batch (pending CI)
+## Release gate
 
-- Missing executable must return `NotStarted(NotFound)` without spawning an actor.
-- Crashed worker must complete cleanup and reject follow-up requests without silently restarting; Linux also verifies PID disappearance.
-- Invalid pre-dispatch frame must return `NotStarted(InvalidInput)` without poisoning or replacing a healthy child.
-- These tests do **not** close blocked I/O, truncated response, runtime teardown, Windows OS-liveness or tracing acceptance gaps.
+Do not mark M3.1 complete or PR #10 ready for review until the following evidence exists:
 
-## Windows liveness and busy-shutdown regression batch (pending CI)
+1. Runtime-independent direct-child process ownership and bounded termination/reaping, verified across runtime shutdown on Linux and Windows.
+2. Structured lifecycle tracing that excludes payloads, secrets, source and environment values, with redaction tests.
+3. Recorded measured line coverage meeting the >=90% requirement, or an explicitly approved exception.
+4. Maintainer approval of requirements, design and remaining risks.
 
-Windows now queries the OS process table via native `tasklist` after graceful shutdown and Drop cleanup, rather than relying only on actor completion. A cross-platform busy-worker test overlaps a hung invocation and shutdown, asserts conservative error outcomes and awaits actor cleanup. The Windows tests and busy-shutdown test require CI verification; runtime teardown and full fault-injection coverage remain outstanding.
+A successful process-disappearance check is **not** evidence that the parent waited for the child.
