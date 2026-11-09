@@ -44,7 +44,10 @@ async fn supervisor_exchanges_multiple_frames_and_shuts_down() {
     let pid = worker.child_id().expect("worker PID must be observable");
     assert!(pid > 0);
     worker.shutdown().await.unwrap();
-    assert!(*exited.borrow_and_update(), "actor must finish child wait before shutdown returns");
+    assert!(
+        *exited.borrow_and_update(),
+        "actor must finish child wait before shutdown returns"
+    );
 }
 
 #[tokio::test]
@@ -312,13 +315,19 @@ async fn worker_event_roundtrip_does_not_corrupt_invocation() {
         .await
         .unwrap();
     let event = worker
-        .exchange(br#"{"name":null,"arguments":{},"event":"custom"}"#.to_vec(), deadline())
+        .exchange(
+            br#"{"name":null,"arguments":{},"event":"custom"}"#.to_vec(),
+            deadline(),
+        )
         .await
         .unwrap();
     let decoded: serde_json::Value = serde_json::from_slice(&event).unwrap();
     assert!(decoded["error"].is_null());
     let invoke = worker
-        .exchange(br#"{"name":"echo","arguments":{"after":"event"}}"#.to_vec(), deadline())
+        .exchange(
+            br#"{"name":"echo","arguments":{"after":"event"}}"#.to_vec(),
+            deadline(),
+        )
         .await
         .unwrap();
     let decoded: serde_json::Value = serde_json::from_slice(&invoke).unwrap();
@@ -333,7 +342,9 @@ async fn worker_crash_completes_actor_cleanup() {
     let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
     let mut exited = worker.exit_observer();
     assert!(matches!(
-        worker.exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline()).await,
+        worker
+            .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+            .await,
         Err(SupervisorError::Unknown(_))
     ));
     tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
