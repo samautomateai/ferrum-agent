@@ -486,3 +486,51 @@ async fn cancelled_dispatched_request_is_never_replayed() {
         .await
         .unwrap();
 }
+
+#[test]
+fn runtime_teardown_terminates_direct_worker_process() {
+    let source = extension();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    let worker = runtime.block_on(async {
+        let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+        worker
+            .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+            .await
+            .unwrap();
+        worker
+    });
+    let pid = worker.child_id().expect("worker PID");
+    // The supervisor is deliberately still alive when the runtime stops.
+    // This exercises Tokio's kill-on-drop fallback, not normal actor cleanup.
+    runtime.shutdown_timeout(Duration::from_millis(200));
+    drop(worker);
+    let started = std::time::Instant::now();
+    loop {
+        #[cfg(target_os = "linux")]
+        let gone = !Path::new("/proc").join(pid.to_string()).exists();
+        #[cfg(target_os = "windows")]
+        let gone = {
+            let output = std::process::Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+                .output()
+                .expect("tasklist");
+            let listing = String::from_utf8_lossy(&output.stdout);
+            !listing.lines().any(|line| {
+                let fields: Vec<_> = line.trim().trim_matches('"').split("\",\"").collect();
+                fields.get(1).is_some_and(|field| field.trim_matches('"') == pid.to_string())
+            })
+        };
+        if gone {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "worker {pid} survived runtime teardown"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
