@@ -28,7 +28,10 @@ fn in_flight_timeouts_have_unknown_outcome() {
 
 #[test]
 fn broken_connection_never_implies_safe_replay() {
-    for error in [SupervisorError::Unknown(io::ErrorKind::BrokenPipe), SupervisorError::Closed] {
+    for error in [
+        SupervisorError::Unknown(io::ErrorKind::BrokenPipe),
+        SupervisorError::Closed,
+    ] {
         let failure = mapped(error);
         assert_eq!(failure.outcome(), ErrorOutcome::Unknown);
         assert!(!failure.retryable());
