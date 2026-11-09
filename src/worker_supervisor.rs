@@ -128,6 +128,7 @@ fn native_kill_and_reap(pid: u32) -> io::Result<()> {
 #[cfg(windows)]
 fn native_kill_and_reap(pid: u32) -> io::Result<()> {
     use std::ffi::c_void;
+    #[link(name = "kernel32")]
     unsafe extern "system" {
         fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut c_void;
         fn TerminateProcess(handle: *mut c_void, code: u32) -> i32;
