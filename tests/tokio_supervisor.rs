@@ -472,3 +472,61 @@ async fn linux_direct_child_disappears_after_unknown_timeout() {
         .expect("timeout cleanup observer closed");
     assert_linux_child_reaped(pid);
 }
+
+#[tokio::test]
+async fn missing_worker_binary_is_not_started_and_does_not_spawn_actor() {
+    let source = extension();
+    let missing = source.path().with_extension("missing-worker-executable");
+    let error = match WorkerSupervisor::spawn(&missing, source.path()) {
+        Ok(_) => panic!("missing executable unexpectedly spawned"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error,
+        SupervisorError::NotStarted(io::ErrorKind::NotFound)
+    ));
+}
+
+#[tokio::test]
+async fn worker_crash_rejects_followup_without_restarting_child() {
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(source.path(), "not valid javascript !").unwrap();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let pid = worker.child_id().expect("worker PID");
+    let mut exited = worker.exit_observer();
+    let result = worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await;
+    assert!(matches!(result, Err(SupervisorError::Unknown(_))));
+    tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
+        .await
+        .expect("crashed child cleanup timed out")
+        .expect("cleanup observer closed");
+    assert_eq!(worker.child_id(), Some(pid), "worker must not be restarted");
+    let followup = worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await;
+    assert!(matches!(followup, Err(SupervisorError::Closed)));
+    #[cfg(target_os = "linux")]
+    assert_linux_child_reaped(pid);
+}
+
+#[tokio::test]
+async fn rejected_request_keeps_original_child_alive_for_valid_followup() {
+    let source = extension();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let pid = worker.child_id().expect("worker PID");
+    let invalid = worker.exchange(b"two\nframes".to_vec(), deadline()).await;
+    assert!(matches!(
+        invalid,
+        Err(SupervisorError::NotStarted(io::ErrorKind::InvalidInput))
+    ));
+    let valid = worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let decoded: serde_json::Value = serde_json::from_slice(&valid).unwrap();
+    assert!(decoded["manifest"].is_object());
+    assert_eq!(worker.child_id(), Some(pid));
+    worker.shutdown().await.unwrap();
+}

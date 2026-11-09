@@ -38,3 +38,7 @@ Do not merge until these are resolved; do not relax quality gates or add Docker 
 - Add Linux-only `/proc/<pid>` disappearance assertions following `Child::wait` on graceful shutdown, Drop, and unknown-outcome timeout.
 - This tests direct-child disappearance on Linux AMD64/ARM64, not Windows reaping, runtime teardown, or descendants.
 - Latest verified baseline: [CI 42589940863](https://github.com/samautomateai/ferrum-agent/actions/runs/42589940863), all six jobs passed.
+
+## Failure contract regression batch (pending CI)
+
+Add cross-platform real-worker tests for spawn failure, post-crash no-restart, and pre-dispatch invalid frame followed by a healthy request. These are incremental fault-contract checks, not full M3.1 completion. Requirements/design approval and blocked I/O/runtime-teardown work remain pending.
