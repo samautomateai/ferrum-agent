@@ -265,5 +265,8 @@ async fn shutdown_after_worker_crash_is_bounded_and_reports_failure() {
     let shutdown = tokio::time::timeout(Duration::from_secs(2), worker.shutdown())
         .await
         .expect("shutdown hung after worker crash");
-    assert!(shutdown.is_err(), "crashed worker cannot acknowledge shutdown");
+    assert!(
+        shutdown.is_err(),
+        "crashed worker cannot acknowledge shutdown"
+    );
 }
