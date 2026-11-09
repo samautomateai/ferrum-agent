@@ -46,7 +46,11 @@ pub struct WorkerSupervisor {
     sender: mpsc::Sender<CommandMessage>,
     actor: Option<JoinHandle<()>>,
     runtime: tokio::runtime::Handle,
+    // The binary target compiles this module separately from the library; these
+    // diagnostic fields are consumed by library integration tests only.
+    #[allow(dead_code)]
     child_id: Option<u32>,
+    #[allow(dead_code)]
     exited: watch::Receiver<bool>,
 }
 
@@ -88,12 +92,14 @@ impl WorkerSupervisor {
     }
 
     /// PID of the direct worker process, for diagnostics and reaping tests.
+    #[allow(dead_code)]
     pub fn child_id(&self) -> Option<u32> {
         self.child_id
     }
 
     /// Completes when the actor finishes its direct-child cleanup path.
     /// This does not establish descendant process-tree containment.
+    #[allow(dead_code)]
     pub fn exit_observer(&self) -> watch::Receiver<bool> {
         self.exited.clone()
     }
