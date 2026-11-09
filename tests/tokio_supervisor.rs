@@ -573,3 +573,79 @@ async fn cancelled_queued_request_does_not_terminate_healthy_worker() {
     assert!(decoded["manifest"].is_object());
     worker.shutdown().await.unwrap();
 }
+
+#[cfg(target_os = "windows")]
+fn assert_windows_child_reaped(pid: u32) {
+    // tasklist is a native Windows OS query; an actor completion flag alone
+    // does not establish that the direct child has disappeared.
+    let output = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output()
+        .expect("tasklist must be available on Windows CI");
+    assert!(output.status.success(), "tasklist failed");
+    let listing = String::from_utf8_lossy(&output.stdout);
+    let present = listing.lines().any(|line| {
+        let fields: Vec<_> = line.trim().trim_matches('"').split("\",\"").collect();
+        fields.get(1).is_some_and(|field| field.trim_matches('"') == pid.to_string())
+    });
+    assert!(!present, "worker PID {pid} remains in Windows process table");
+}
+
+#[cfg(target_os = "windows")]
+#[tokio::test]
+async fn windows_direct_child_disappears_after_graceful_shutdown() {
+    let source = extension();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let pid = worker.child_id().expect("worker PID");
+    worker.shutdown().await.unwrap();
+    assert_windows_child_reaped(pid);
+}
+
+#[cfg(target_os = "windows")]
+#[tokio::test]
+async fn windows_direct_child_disappears_after_drop() {
+    let source = extension();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let pid = worker.child_id().expect("worker PID");
+    let mut exited = worker.exit_observer();
+    drop(worker);
+    tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
+        .await
+        .expect("drop cleanup timed out")
+        .expect("drop cleanup observer closed");
+    assert_windows_child_reaped(pid);
+}
+
+#[tokio::test]
+async fn busy_worker_shutdown_is_bounded_and_cleanup_completes() {
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        source.path(),
+        "pi.registerTool({name:'hang',execute:()=>{while(true){}}});",
+    )
+    .unwrap();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let mut exited = worker.exit_observer();
+    worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let request = worker.exchange(
+        br#"{"name":"hang","arguments":{}}"#.to_vec(),
+        Instant::now() + Duration::from_millis(250),
+    );
+    let shutdown = async {
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        worker.shutdown().await
+    };
+    let (request_result, shutdown_result) = tokio::join!(request, shutdown);
+    assert!(matches!(
+        request_result,
+        Err(SupervisorError::Unknown(io::ErrorKind::TimedOut))
+    ));
+    assert!(shutdown_result.is_err(), "hung worker cannot acknowledge shutdown");
+    tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
+        .await
+        .expect("busy worker cleanup timed out")
+        .expect("cleanup observer closed");
+}
