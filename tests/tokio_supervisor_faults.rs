@@ -516,10 +516,13 @@ fn runtime_teardown_terminates_direct_worker_process() {
         .build()
         .unwrap();
     wait_runtime.block_on(async {
-        tokio::time::timeout(Duration::from_secs(5), reaped.wait_for(|status| status.is_some()))
-            .await
-            .expect("independent OS wait timed out")
-            .expect("process owner exited without recording wait");
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            reaped.wait_for(|status| status.is_some()),
+        )
+        .await
+        .expect("independent OS wait timed out")
+        .expect("process owner exited without recording wait");
     });
     let started = std::time::Instant::now();
     loop {

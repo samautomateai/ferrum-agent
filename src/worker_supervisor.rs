@@ -57,7 +57,6 @@ impl Drop for OwnerPermit {
     }
 }
 
-
 /// Emit only fixed lifecycle labels and error categories. Never serialize IPC payloads.
 fn lifecycle_record(
     event: &'static str,
@@ -111,7 +110,6 @@ struct ProcessOwner {
     status: watch::Receiver<Option<ExitStatus>>,
 }
 
-
 impl ProcessOwner {
     fn start(mut child: Child) -> Result<Arc<Self>, SupervisorError> {
         let permit = OwnerPermit::acquire()?;
@@ -149,7 +147,10 @@ impl ProcessOwner {
                     let _ = child.start_kill();
                     // Best effort: never abandon a child handle without a wait attempt.
                     // Tokio Child::wait requires a runtime; this failure is reported to spawn.
-                    if let Ok(fallback) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                    if let Ok(fallback) = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                    {
                         let _ = fallback.block_on(child.wait());
                     }
                 }
