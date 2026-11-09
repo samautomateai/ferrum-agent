@@ -14,14 +14,17 @@ use tokio::{
 const COMMAND_CAPACITY: usize = 16;
 
 /// Emit only fixed lifecycle labels and error categories. Never serialize IPC payloads.
-fn lifecycle_event(event: &'static str, pid: Option<u32>, error: Option<io::ErrorKind>) {
-    let record = serde_json::json!({
+fn lifecycle_record(event: &'static str, pid: Option<u32>, error: Option<io::ErrorKind>) -> serde_json::Value {
+    serde_json::json!({
         "component": "worker_supervisor",
         "event": event,
         "pid": pid,
         "error_kind": error.map(|kind| format!("{kind:?}")),
-    });
-    eprintln!("{record}");
+    })
+}
+
+fn lifecycle_event(event: &'static str, pid: Option<u32>, error: Option<io::ErrorKind>) {
+    eprintln!("{}", lifecycle_record(event, pid, error));
 }
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
@@ -332,12 +335,9 @@ mod tests {
 
     #[test]
     fn lifecycle_record_has_fixed_safe_fields() {
-        let event = serde_json::json!({
-            "component": "worker_supervisor",
-            "event": "exchange_fault",
-            "pid": 1234,
-            "error_kind": "TimedOut",
-        });
+        let event = lifecycle_record("exchange_fault", Some(1234), Some(io::ErrorKind::TimedOut));
+        assert_eq!(event["event"], "exchange_fault");
+        assert_eq!(event["error_kind"], "TimedOut");
         assert_eq!(event.as_object().unwrap().len(), 4);
         assert!(event.get("payload").is_none());
         assert!(event.get("source").is_none());
