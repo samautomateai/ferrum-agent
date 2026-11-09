@@ -102,6 +102,59 @@ enum CommandMessage {
     },
 }
 
+// Last-resort OS wait path when the independent Tokio runtime cannot start.
+// The process owner still holds the Child, so the PID cannot be reused before
+// this thread completes its termination and wait attempt.
+#[cfg(unix)]
+fn native_kill_and_reap(pid: u32) -> io::Result<()> {
+    use std::os::raw::c_int;
+    unsafe extern "C" {
+        fn kill(pid: c_int, signal: c_int) -> c_int;
+        fn waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
+    }
+    let pid = c_int::try_from(pid).map_err(|_| io::ErrorKind::InvalidInput)?;
+    // SIGKILL is 9 on the supported Unix targets.
+    unsafe {
+        let _ = kill(pid, 9);
+        let mut status = 0;
+        if waitpid(pid, &mut status, 0) == pid {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    }
+}
+
+#[cfg(windows)]
+fn native_kill_and_reap(pid: u32) -> io::Result<()> {
+    use std::ffi::c_void;
+    unsafe extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut c_void;
+        fn TerminateProcess(handle: *mut c_void, code: u32) -> i32;
+        fn WaitForSingleObject(handle: *mut c_void, millis: u32) -> u32;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+    const PROCESS_TERMINATE: u32 = 0x0001;
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    const WAIT_OBJECT_0: u32 = 0;
+    const INFINITE: u32 = 0xffff_ffff;
+    unsafe {
+        let handle = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, 0, pid);
+        if handle.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let _ = TerminateProcess(handle, 1);
+        let result = WaitForSingleObject(handle, INFINITE);
+        let error = if result == WAIT_OBJECT_0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        };
+        let _ = CloseHandle(handle);
+        error
+    }
+}
+
 struct ProcessOwner {
     terminate: watch::Sender<bool>,
     status: watch::Receiver<Option<ExitStatus>>,
@@ -141,15 +194,10 @@ impl ProcessOwner {
                         }
                     });
                 } else {
-                    let _ = child.start_kill();
-                    // Best effort: never abandon a child handle without a wait attempt.
-                    // Tokio Child::wait requires a runtime; this failure is reported to spawn.
-                    if let Ok(fallback) = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                    {
-                        if let Ok(exit) = fallback.block_on(child.wait()) {
-                            let _ = finished.send(Some(exit));
+                    // Runtime-free OS termination/wait, including when Tokio cannot initialize.
+                    if let Some(pid) = child.id() {
+                        if let Err(error) = native_kill_and_reap(pid) {
+                            lifecycle_event("native_reap_failed", Some(pid), Some(error.kind()));
                         }
                     }
                 }
