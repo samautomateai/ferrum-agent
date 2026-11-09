@@ -102,6 +102,11 @@ impl Process {
 fn map_supervisor_error(error: crate::worker_supervisor::SupervisorError) -> RuntimeFailure {
     use crate::worker_supervisor::SupervisorError;
     let (code, outcome, message) = match error {
+        SupervisorError::NotStarted(std::io::ErrorKind::TimedOut) => (
+            ErrorCode::WorkerTimeout,
+            ErrorOutcome::NotStarted,
+            "worker request not started before deadline",
+        ),
         SupervisorError::NotStarted(_) => (
             ErrorCode::WorkerCrash,
             ErrorOutcome::NotStarted,
