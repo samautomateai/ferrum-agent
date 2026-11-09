@@ -233,10 +233,7 @@ async fn cancelling_an_inflight_exchange_does_not_replay_or_poison_next_request(
     // Drop an exchange future after dispatch. The actor must retain ownership
     // of its IPC operation and must not retry it on behalf of the next caller.
     let request = serde_json::json!({"name":"echo","arguments":{"value":"cancelled"}});
-    let mut inflight = Box::pin(worker.exchange(
-        serde_json::to_vec(&request).unwrap(),
-        deadline(),
-    ));
+    let mut inflight = Box::pin(worker.exchange(serde_json::to_vec(&request).unwrap(), deadline()));
     tokio::select! {
         _ = &mut inflight => {}
         _ = tokio::task::yield_now() => {}
@@ -252,4 +249,3 @@ async fn cancelling_an_inflight_exchange_does_not_replay_or_poison_next_request(
     assert_eq!(decoded["result"]["value"], "next");
     worker.shutdown().await.unwrap();
 }
-
