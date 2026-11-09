@@ -13,6 +13,8 @@
 
 - [ ] Review [M3.1 acceptance matrix](requirements/m31-acceptance-matrix.md) and [SDD review checklist](development/sdd-review-checklist.md) with the maintainer.
 
+- [ ] Verify M3.1 SDD contract validator and negative tests in the next full CI run; human approval remains pending.
+
 ## Status conventions and update protocol
 
 - `[x]` = acceptance demonstrated and evidence linked. `[ ]` = incomplete, unverified, or not yet scoped.

@@ -45,3 +45,7 @@ Never mark a requirement accepted solely because a code path exists.
 - [M3.1 acceptance matrix](../requirements/m31-acceptance-matrix.md)
 
 These aids are proposed; no automatic approval or CI enforcement is implied.
+
+## CI validation
+
+The `task source-limits` and `task quality` workflows execute `scripts/check_sdd_contract.py`, which fails for missing M3.1 artifacts, duplicate requirement IDs, missing design mappings, missing acceptance rows and undefined IDs. It does **not** infer or grant human approval; approval remains a separate gate. This first validator covers M3.1, not every future milestone.

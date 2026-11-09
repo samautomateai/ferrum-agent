@@ -15,6 +15,7 @@ tasks:
     cmds:
       - python3 -m unittest discover -s scripts -p 'test_*.py'
       - python3 scripts/check_quality_contract.py
+      - python3 scripts/check_sdd_contract.py
       - python3 scripts/check_source_limits.py --max-lines 600 --max-width 120
   format:
     cmds:

@@ -23,6 +23,8 @@ def validate(root: Path) -> list[str]:
     for name in REQUIRED_TASKS:
         if f'  {name}:\n' not in task:
             errors.append(f'missing task: {name}')
+    if 'python3 scripts/check_sdd_contract.py' not in task:
+        errors.append('SDD contract validation must run in source-limits')
     if 'task quality' not in ci:
         errors.append('CI must execute task quality (same local entry point)')
     if 'task: coverage' not in task or '--fail-under-lines 90' not in task:
