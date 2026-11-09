@@ -200,9 +200,7 @@ async fn actor_loop(
                 // Expired or abandoned queued requests were never dispatched.
                 // They must not fault or terminate an otherwise healthy worker.
                 if reply.is_closed() || Instant::now() >= deadline {
-                    let _ = reply.send(Err(SupervisorError::NotStarted(
-                        io::ErrorKind::TimedOut,
-                    )));
+                    let _ = reply.send(Err(SupervisorError::NotStarted(io::ErrorKind::TimedOut)));
                     continue;
                 }
                 if lifecycle.transition(WorkerEvent::RequestAccepted).is_err() {

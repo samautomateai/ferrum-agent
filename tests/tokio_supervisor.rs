@@ -544,10 +544,7 @@ async fn cancelled_queued_request_does_not_terminate_healthy_worker() {
         .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
         .await
         .unwrap();
-    let first = worker.exchange(
-        br#"{"name":"pause","arguments":{}}"#.to_vec(),
-        deadline(),
-    );
+    let first = worker.exchange(br#"{"name":"pause","arguments":{}}"#.to_vec(), deadline());
     let queued = async {
         tokio::time::sleep(Duration::from_millis(20)).await;
         worker
@@ -558,7 +555,10 @@ async fn cancelled_queued_request_does_not_terminate_healthy_worker() {
             .await
     };
     let (first_result, queued_result) = tokio::join!(first, queued);
-    assert!(first_result.is_ok(), "first dispatched request should succeed");
+    assert!(
+        first_result.is_ok(),
+        "first dispatched request should succeed"
+    );
     assert!(matches!(
         queued_result,
         Err(SupervisorError::Unknown(io::ErrorKind::TimedOut))
