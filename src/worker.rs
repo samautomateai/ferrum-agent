@@ -43,7 +43,7 @@ impl Process {
         let exe = std::env::current_exe().context("locating worker executable")?;
         let supervisor = crate::supervisor_runtime::run_sync(async {
             crate::worker_supervisor::WorkerSupervisor::spawn(&exe, source)
-        })??;
+        })?\n        .map_err(map_supervisor_error)?;
         Ok(Self {
             supervisor: Some(supervisor),
         })
