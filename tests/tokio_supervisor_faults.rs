@@ -476,7 +476,10 @@ async fn cancelled_dispatched_request_is_never_replayed() {
         .await
         .unwrap();
     let parsed: serde_json::Value = serde_json::from_slice(&response).unwrap();
-    assert_eq!(parsed["result"]["calls"], 1, "cancelled invocation must not replay");
+    assert_eq!(
+        parsed["result"]["calls"], 1,
+        "cancelled invocation must not replay"
+    );
     Arc::try_unwrap(worker)
         .unwrap_or_else(|_| panic!("request must release worker"))
         .shutdown()
