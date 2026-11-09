@@ -1,9 +1,9 @@
 //! Tokio worker supervisor used by the synchronous extension-worker facade.
-//! Direct-child cleanup is best-effort during runtime teardown; OS process-tree
-//! containment and guaranteed reaping are tracked in the readiness checkpoint.
+//! A dedicated process-owner thread survives the shared Tokio runtime and
+//! owns direct-child termination and wait/reaping. Descendants are out of scope.
 use crate::async_ipc::{FramedIpc, IpcError, IpcOutcome};
 use crate::worker_lifecycle::{WorkerEvent, WorkerLifecycle};
-use std::{io, path::Path, process::Stdio, time::Duration};
+use std::{io, path::Path, process::{ExitStatus, Stdio}, sync::Arc, time::Duration};
 use tokio::{
     process::{Child, Command},
     sync::{mpsc, oneshot, watch},
@@ -61,6 +61,69 @@ enum CommandMessage {
     },
 }
 
+struct ProcessOwner {
+    terminate: watch::Sender<bool>,
+    status: watch::Receiver<Option<ExitStatus>>,
+}
+
+impl ProcessOwner {
+    fn start(mut child: Child) -> Result<Arc<Self>, SupervisorError> {
+        let (terminate, mut requested) = watch::channel(false);
+        let (finished, status) = watch::channel(None);
+        std::thread::Builder::new()
+            .name("ferrum-worker-reaper".into())
+            .spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build();
+                if let Ok(runtime) = runtime {
+                    runtime.block_on(async {
+                        let outcome = tokio::select! {
+                            result = child.wait() => result,
+                            _ = async {
+                                while !*requested.borrow_and_update() {
+                                    if requested.changed().await.is_err() {
+                                        break;
+                                    }
+                                }
+                            } => {
+                                let _ = child.start_kill();
+                                child.wait().await
+                            }
+                        };
+                        if let Ok(exit) = outcome {
+                            let _ = finished.send(Some(exit));
+                        }
+                    });
+                } else {
+                    let _ = child.start_kill();
+                }
+            })
+            .map_err(|error| SupervisorError::NotStarted(error.kind()))?;
+        Ok(Arc::new(Self { terminate, status }))
+    }
+
+    fn kill(&self) {
+        let _ = self.terminate.send(true);
+    }
+
+    async fn wait(&self) -> io::Result<ExitStatus> {
+        let mut status = self.status.clone();
+        loop {
+            if let Some(exit) = *status.borrow_and_update() {
+                return Ok(exit);
+            }
+            status.changed().await.map_err(|_| io::ErrorKind::BrokenPipe)?;
+        }
+    }
+}
+
+impl Drop for ProcessOwner {
+    fn drop(&mut self) {
+        self.kill();
+    }
+}
+
 pub struct WorkerSupervisor {
     sender: mpsc::Sender<CommandMessage>,
     actor: Option<JoinHandle<()>>,
@@ -95,11 +158,12 @@ impl WorkerSupervisor {
             .take()
             .ok_or(SupervisorError::NotStarted(io::ErrorKind::BrokenPipe))?;
         let child_id = child.id();
+        let owner = ProcessOwner::start(child)?;
         lifecycle_event("spawned", child_id, None);
         let (sender, receiver) = mpsc::channel(COMMAND_CAPACITY);
         let (exit_sender, exited) = watch::channel(false);
         let actor = tokio::spawn(async move {
-            actor_loop(child, FramedIpc::new(stdin, stdout), receiver).await;
+            actor_loop(owner, FramedIpc::new(stdin, stdout), receiver).await;
             lifecycle_event("actor_exited", child_id, None);
             let _ = exit_sender.send(true);
         });
@@ -239,13 +303,13 @@ impl Drop for WorkerSupervisor {
 }
 
 async fn actor_loop(
-    mut child: Child,
+    child: Arc<ProcessOwner>,
     mut ipc: FramedIpc,
     mut receiver: mpsc::Receiver<CommandMessage>,
 ) {
     let mut lifecycle = WorkerLifecycle::new();
     if lifecycle.transition(WorkerEvent::Started).is_err() {
-        let _ = child.start_kill();
+        child.kill();
         let _ = child.wait().await;
         return;
     }
@@ -276,7 +340,7 @@ async fn actor_loop(
                 let failed = result.is_err();
                 let _ = reply.send(result);
                 if failed {
-                    lifecycle_event("exchange_fault", child.id(), None);
+                    lifecycle_event("exchange_fault", None, None);
                     break;
                 }
             }
@@ -292,8 +356,8 @@ async fn actor_loop(
                 drop(ipc);
                 let exited = timeout_at(deadline, child.wait()).await;
                 if !matches!(exited, Ok(Ok(_))) {
-                    let _ = child.start_kill();
-                    // Reap on the actor task; the caller deadline is not extended.
+                    child.kill();
+                    // The independent owner thread completes the OS wait/reap.
                     let _ = child.wait().await;
                 }
                 let result = match (handshake, exited) {
@@ -308,7 +372,7 @@ async fn actor_loop(
                     _ => Err(SupervisorError::Unknown(io::ErrorKind::InvalidData)),
                 };
                 if result.is_err() {
-                    lifecycle_event("shutdown_fault", child.id(), None);
+                    lifecycle_event("shutdown_fault", None, None);
                     let _ = lifecycle.transition(WorkerEvent::Fault);
                 }
                 let _ = reply.send(result);
@@ -316,7 +380,7 @@ async fn actor_loop(
             }
         }
     }
-    let _ = child.start_kill();
+    child.kill();
     let _ = child.wait().await;
     if lifecycle.state() == crate::worker_lifecycle::WorkerState::Stopping {
         let _ = lifecycle.transition(WorkerEvent::Stopped);
