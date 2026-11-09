@@ -239,8 +239,6 @@ pub struct WorkerSupervisor {
     sender: mpsc::Sender<CommandMessage>,
     actor: Option<JoinHandle<()>>,
     runtime: tokio::runtime::Handle,
-    // The binary target compiles this module separately from the library; these
-    // diagnostic fields are consumed by library integration tests only.
     #[allow(dead_code)]
     child_id: Option<u32>,
     #[allow(dead_code)]
