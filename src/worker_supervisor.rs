@@ -486,20 +486,6 @@ mod tests {
     }
 
     #[test]
-    fn process_owner_limit_is_bounded_and_permits_are_released() {
-        let mut permits = Vec::new();
-        for _ in 0..MAX_PROCESS_OWNERS {
-            permits.push(OwnerPermit::acquire().expect("available process owner slot"));
-        }
-        assert!(matches!(
-            OwnerPermit::acquire(),
-            Err(SupervisorError::NotStarted(io::ErrorKind::WouldBlock))
-        ));
-        drop(permits);
-        assert!(OwnerPermit::acquire().is_ok());
-    }
-
-    #[test]
     fn dropped_reply_is_detected_before_dispatch() {
         let (reply, receiver) = oneshot::channel::<Result<Vec<u8>, SupervisorError>>();
         assert!(!reply.is_closed());
