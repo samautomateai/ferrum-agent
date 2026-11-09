@@ -3,7 +3,13 @@
 //! owns direct-child termination and wait/reaping. Descendants are out of scope.
 use crate::async_ipc::{FramedIpc, IpcError, IpcOutcome};
 use crate::worker_lifecycle::{WorkerEvent, WorkerLifecycle};
-use std::{io, path::Path, process::{ExitStatus, Stdio}, sync::Arc, time::Duration};
+use std::{
+    io,
+    path::Path,
+    process::{ExitStatus, Stdio},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::{
     process::{Child, Command},
     sync::{mpsc, oneshot, watch},
@@ -113,7 +119,10 @@ impl ProcessOwner {
             if let Some(exit) = *status.borrow_and_update() {
                 return Ok(exit);
             }
-            status.changed().await.map_err(|_| io::ErrorKind::BrokenPipe)?;
+            status
+                .changed()
+                .await
+                .map_err(|_| io::ErrorKind::BrokenPipe)?;
         }
     }
 }
