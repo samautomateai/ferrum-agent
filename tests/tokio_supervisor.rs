@@ -249,3 +249,21 @@ async fn cancelling_an_inflight_exchange_does_not_replay_or_poison_next_request(
     assert_eq!(decoded["result"]["value"], "next");
     worker.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn shutdown_after_worker_crash_is_bounded_and_reports_failure() {
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(source.path(), "not valid javascript !").unwrap();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let first = worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await;
+    assert!(matches!(first, Err(SupervisorError::Unknown(_))));
+
+    // A crashed actor must not hang shutdown while trying to enqueue a
+    // handshake that can no longer be processed.
+    let shutdown = tokio::time::timeout(Duration::from_secs(2), worker.shutdown())
+        .await
+        .expect("shutdown hung after worker crash");
+    assert!(shutdown.is_err(), "crashed worker cannot acknowledge shutdown");
+}
