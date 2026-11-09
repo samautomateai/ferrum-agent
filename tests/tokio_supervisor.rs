@@ -270,3 +270,20 @@ async fn shutdown_after_worker_crash_is_bounded_and_reports_failure() {
         "crashed worker cannot acknowledge shutdown"
     );
 }
+
+#[tokio::test]
+async fn malformed_json_request_returns_worker_error_without_poisoning_connection() {
+    let source = extension();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let reply = worker.exchange(b"{invalid-json}".to_vec(), deadline()).await.unwrap();
+    let decoded: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+    assert!(decoded["error"].is_string(), "malformed JSON must report a worker error");
+
+    let hello = worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let decoded: serde_json::Value = serde_json::from_slice(&hello).unwrap();
+    assert!(decoded["manifest"].is_object(), "worker must remain usable");
+    worker.shutdown().await.unwrap();
+}
