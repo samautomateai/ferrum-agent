@@ -220,7 +220,6 @@ async fn busy_worker_shutdown_is_bounded_and_cleanup_completes() {
         .expect("cleanup observer closed");
 }
 
-
 #[tokio::test]
 async fn try_exchange_processes_real_worker_request_without_waiting_for_queue_slot() {
     let source = extension();
