@@ -9,7 +9,7 @@ class SddContractTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         fixtures = {
-            REQUIREMENTS: "**M31-R1** One.\n**M31-N1** Two.\nmaintainer agreement required\nopenspec/specs/m31-tokio-supervisor.md",
+            REQUIREMENTS: "- **M31-R1** One.\n- **M31-N1** Two.\nmaintainer agreement required\nopenspec/specs/m31-tokio-supervisor.md",
             DESIGN: "M31-R1 M31-N1\napproval pending\nopenspec/specs/m31-tokio-supervisor.md",
             MATRIX: "| M31-R1 | R1 | test | pending | Partial |\n| M31-N1 | R2 | test | pending | Partial |",
             SPEC: "m31-worker-supervision.md",
