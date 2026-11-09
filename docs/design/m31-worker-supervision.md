@@ -32,6 +32,15 @@ CLI / ExtensionWorker (sync)
 | M31-R7 | Sanitize public errors; structured tracing **not implemented** |
 | M31-R8 | Direct child only; descendants deferred to M3.2 |
 
+## Nonfunctional requirement trace
+
+| Requirement | Design and verification |
+| --- | --- |
+| M31-N1 | Bounded IPC, bounded queue, deadline-aware cleanup; blocked I/O fixtures pending |
+| M31-N2 | Linux and Windows platform matrix; Windows direct-child liveness pending |
+| M31-N3 | Existing quality and coverage gates; measured coverage evidence pending |
+| M31-N4 | Fault-injection tests for malformed, truncated, EOF, broken pipe, shutdown and teardown; incomplete |
+
 ## Failure behavior
 
 - Rejected before dispatch: `NotStarted`; worker remains usable.
