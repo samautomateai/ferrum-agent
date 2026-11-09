@@ -107,7 +107,7 @@ mod tests {
     #[tokio::test]
     async fn truncated_response_is_unknown_eof() {
         let (mut writer, reader) = duplex(64);
-        writer.write_all(b"{\\"partial\\":true}").await.unwrap();
+        writer.write_all(br#"{"partial":true}"#).await.unwrap();
         drop(writer);
         let result = read_frame(&mut BufReader::new(reader), Instant::now() + std::time::Duration::from_secs(1)).await;
         assert!(matches!(result, Err(IpcError { outcome: IpcOutcome::Unknown, kind: io::ErrorKind::UnexpectedEof })));
