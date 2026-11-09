@@ -118,6 +118,9 @@
 
 ## Checkpoint log
 
+M3.1 additional fault coverage: timeout after dispatched side-effecting invocation must close the actor without replay; malformed JSON must terminate the worker and complete the actor cleanup observer. New tests pending CI. OS-level liveness, runtime teardown, blocked stdin and structured tracing remain unchecked.
+
+
 Pending CI: supervisor now exposes direct-child PID and an actor-cleanup observer; tests assert shutdown, crash, timeout and Drop actor completion, plus event/invoke continuity. These prove actor cleanup completion, **not independently OS-verified reaping or descendant containment**. Keep the full reaping criterion unchecked until OS-liveness evidence and runtime-teardown guarantees exist.
 
 

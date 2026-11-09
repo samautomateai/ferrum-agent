@@ -1,4 +1,4 @@
-//! Experimental Tokio framed transport; not connected to ExtensionWorker yet.
+//! Bounded Tokio framed transport used by the production extension-worker supervisor.
 use std::io;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, ChildStdout};

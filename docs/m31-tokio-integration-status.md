@@ -25,3 +25,10 @@ Do not merge until these are resolved; do not relax quality gates or add Docker 
 - Assert actor cleanup completion after graceful shutdown, worker crash, timeout and synchronous Drop.
 - Verify event followed by invoke against the real worker binary.
 - **Not yet proven:** OS-level PID disappearance, runtime teardown, blocked writes/shutdown and descendant containment. These remain exit blockers.
+
+## Additional reliability checks (pending CI)
+
+- Regression: timed-out side-effecting invocation must not leave a usable worker or replay the request.
+- Regression: malformed JSON must close the worker and finish actor cleanup.
+- Transport module comment corrected to reflect production use.
+- OS process-liveness, blocked stdin/shutdown, runtime teardown and tracing remain outstanding.

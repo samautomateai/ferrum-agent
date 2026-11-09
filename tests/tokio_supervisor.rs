@@ -352,3 +352,50 @@ async fn worker_crash_completes_actor_cleanup() {
         .expect("crashed worker cleanup did not finish")
         .expect("cleanup observer closed without completion");
 }
+
+#[tokio::test]
+async fn timed_out_request_closes_worker_and_completes_cleanup() {
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        source.path(),
+        "pi.registerTool({name:'hang',execute:()=>{while(true){}}});",
+    )
+    .unwrap();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let mut exited = worker.exit_observer();
+    worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let first = worker
+        .exchange(
+            br#"{"name":"hang","arguments":{}}"#.to_vec(),
+            Instant::now() + Duration::from_millis(250),
+        )
+        .await;
+    assert!(matches!(first, Err(SupervisorError::Unknown(io::ErrorKind::TimedOut))));
+    let next = worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await;
+    assert!(matches!(
+        next,
+        Err(SupervisorError::Closed) | Err(SupervisorError::Unknown(_))
+    ));
+    tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
+        .await
+        .expect("timed-out worker cleanup did not complete")
+        .expect("cleanup observer closed without completion");
+}
+
+#[tokio::test]
+async fn malformed_json_closes_actor_and_reaps_before_observer_notifies() {
+    let source = extension();
+    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
+    let mut exited = worker.exit_observer();
+    let result = worker.exchange(b"{invalid-json}".to_vec(), deadline()).await;
+    assert!(matches!(result, Err(SupervisorError::Unknown(_))));
+    tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
+        .await
+        .expect("malformed protocol cleanup did not complete")
+        .expect("cleanup observer closed without completion");
+}
