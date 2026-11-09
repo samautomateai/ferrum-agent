@@ -7,7 +7,7 @@ use std::{
     io,
     path::Path,
     process::{ExitStatus, Stdio},
-    sync::Arc,
+    sync::{Arc, Condvar, Mutex, OnceLock},
     time::Duration,
 };
 use tokio::{
@@ -18,6 +18,45 @@ use tokio::{
 };
 
 const COMMAND_CAPACITY: usize = 16;
+const MAX_PROCESS_OWNERS: usize = 64;
+const OWNER_READY_TIMEOUT: Duration = Duration::from_secs(3);
+
+struct OwnerSlots {
+    active: Mutex<usize>,
+    changed: Condvar,
+}
+
+fn owner_slots() -> &'static OwnerSlots {
+    static SLOTS: OnceLock<OwnerSlots> = OnceLock::new();
+    SLOTS.get_or_init(|| OwnerSlots {
+        active: Mutex::new(0),
+        changed: Condvar::new(),
+    })
+}
+
+struct OwnerPermit;
+
+impl OwnerPermit {
+    fn acquire() -> Result<Self, SupervisorError> {
+        let slots = owner_slots();
+        let mut active = slots.active.lock().unwrap_or_else(|e| e.into_inner());
+        if *active >= MAX_PROCESS_OWNERS {
+            return Err(SupervisorError::NotStarted(io::ErrorKind::WouldBlock));
+        }
+        *active += 1;
+        Ok(Self)
+    }
+}
+
+impl Drop for OwnerPermit {
+    fn drop(&mut self) {
+        let slots = owner_slots();
+        let mut active = slots.active.lock().unwrap_or_else(|e| e.into_inner());
+        *active -= 1;
+        slots.changed.notify_one();
+    }
+}
+
 
 /// Emit only fixed lifecycle labels and error categories. Never serialize IPC payloads.
 fn lifecycle_record(
@@ -72,16 +111,21 @@ struct ProcessOwner {
     status: watch::Receiver<Option<ExitStatus>>,
 }
 
+
 impl ProcessOwner {
     fn start(mut child: Child) -> Result<Arc<Self>, SupervisorError> {
+        let permit = OwnerPermit::acquire()?;
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
         let (terminate, mut requested) = watch::channel(false);
         let (finished, status) = watch::channel(None);
         std::thread::Builder::new()
             .name("ferrum-worker-reaper".into())
             .spawn(move || {
+                let _permit = permit;
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build();
+                let _ = ready_tx.send(runtime.as_ref().map(|_| ()).map_err(|e| e.kind()));
                 if let Ok(runtime) = runtime {
                     runtime.block_on(async {
                         let outcome = tokio::select! {
@@ -103,10 +147,19 @@ impl ProcessOwner {
                     });
                 } else {
                     let _ = child.start_kill();
+                    // Best effort: never abandon a child handle without a wait attempt.
+                    // Tokio Child::wait requires a runtime; this failure is reported to spawn.
+                    if let Ok(fallback) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                        let _ = fallback.block_on(child.wait());
+                    }
                 }
             })
             .map_err(|error| SupervisorError::NotStarted(error.kind()))?;
-        Ok(Arc::new(Self { terminate, status }))
+        match ready_rx.recv_timeout(OWNER_READY_TIMEOUT) {
+            Ok(Ok(())) => Ok(Arc::new(Self { terminate, status })),
+            Ok(Err(kind)) => Err(SupervisorError::NotStarted(kind)),
+            Err(_) => Err(SupervisorError::NotStarted(io::ErrorKind::TimedOut)),
+        }
     }
 
     fn kill(&self) {
@@ -280,7 +333,6 @@ impl WorkerSupervisor {
             .map_err(|_| SupervisorError::Unknown(io::ErrorKind::TimedOut))?
             .map_err(|_| SupervisorError::Closed)?;
         let actor = self.actor.take().ok_or(SupervisorError::Closed)?;
-        lifecycle_event("shutdown_acknowledged", self.child_id, None);
         // Preserve ownership on deadline expiry: dropping a JoinHandle detaches it.
         // The reaper owns the task until it exits, even if the caller times out.
         let mut actor = actor;
@@ -293,6 +345,9 @@ impl WorkerSupervisor {
                 });
                 return Err(SupervisorError::Unknown(io::ErrorKind::TimedOut));
             }
+        }
+        if shutdown_result.is_ok() {
+            lifecycle_event("shutdown_acknowledged", self.child_id, None);
         }
         shutdown_result
     }
