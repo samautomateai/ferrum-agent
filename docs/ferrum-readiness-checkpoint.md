@@ -120,4 +120,4 @@
 
 | Date | Commit / PR | Evidence | Decision / remaining risk |
 | --- | --- | --- | --- |
-| 2026-11-09 | PR #10, `c0d55c8` | [CI 42581802633](https://github.com/samautomateai/ferrum-agent/actions/runs/42581802633) | Six CI jobs green; direct-child reaping, fault injection and runtime-teardown guarantees still unproven. |
+| 2026-11-09 | PR #10, `ffec46d` | `tests/tokio_supervisor.rs`: shutdown-after-crash bounded regression added; CI verification pending. Does **not** establish child reaping. |\n| 2026-11-09 | PR #10, `c0d55c8` | [CI 42581802633](https://github.com/samautomateai/ferrum-agent/actions/runs/42581802633) | Six CI jobs green; direct-child reaping, fault injection and runtime-teardown guarantees still unproven. |
