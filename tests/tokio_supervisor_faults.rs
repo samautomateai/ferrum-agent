@@ -238,3 +238,66 @@ async fn try_exchange_processes_real_worker_request_without_waiting_for_queue_sl
     ));
     worker.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn saturated_queue_rejects_without_dispatch_and_recovers() {
+    use std::sync::Arc;
+
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        source.path(),
+        concat!(
+            "pi.registerTool({name:'pause',execute:()=>{",
+            "const end=Date.now()+900;while(Date.now()<end){};",
+            "return 'done';}});"
+        ),
+    )
+    .unwrap();
+    let worker = Arc::new(WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap());
+    worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+
+    let active_worker = Arc::clone(&worker);
+    let active = tokio::spawn(async move {
+        active_worker
+            .exchange(br#"{"name":"pause","arguments":{}}"#.to_vec(), deadline())
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(80)).await;
+
+    // The actor is executing pause; exactly sixteen waiting requests fill
+    // the bounded command channel. Spawn each to poll exchange immediately.
+    let mut pending = Vec::new();
+    for _ in 0..16 {
+        let queued_worker = Arc::clone(&worker);
+        pending.push(tokio::spawn(async move {
+            queued_worker
+                .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+                .await
+        }));
+    }
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    let rejected = worker
+        .try_exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await;
+    assert!(matches!(
+        rejected,
+        Err(SupervisorError::NotStarted(io::ErrorKind::WouldBlock))
+    ));
+    assert!(active.await.unwrap().is_ok());
+    for queued in pending {
+        assert!(queued.await.unwrap().is_ok());
+    }
+    let recovered = worker
+        .try_exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    assert!(serde_json::from_slice::<serde_json::Value>(&recovered).is_ok());
+    Arc::try_unwrap(worker)
+        .unwrap_or_else(|_| panic!("all exchange tasks must release the supervisor"))
+        .shutdown()
+        .await
+        .unwrap();
+}
