@@ -462,7 +462,10 @@ async fn linux_direct_child_disappears_after_unknown_timeout() {
             Instant::now() + Duration::from_millis(250),
         )
         .await;
-    assert!(matches!(result, Err(SupervisorError::Unknown(io::ErrorKind::TimedOut))));
+    assert!(matches!(
+        result,
+        Err(SupervisorError::Unknown(io::ErrorKind::TimedOut))
+    ));
     tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
         .await
         .expect("timeout cleanup timed out")
