@@ -54,10 +54,8 @@ impl FramedIpc {
             .map_err(|e| error(IpcOutcome::Unknown, e.kind()))?;
 
         read_frame(&mut self.stdout, deadline).await
-
     }
 }
-
 
 async fn read_frame<R: AsyncBufRead + Unpin>(
     reader: &mut R,
@@ -67,36 +65,36 @@ async fn read_frame<R: AsyncBufRead + Unpin>(
         outcome: IpcOutcome::Unknown,
         kind,
     };
-        let mut frame = Vec::new();
-        loop {
-            let available = timeout_at(deadline, reader.fill_buf())
-                .await
-                .map_err(|_| error(io::ErrorKind::TimedOut))?
-                .map_err(|e| error(e.kind()))?;
-            if available.is_empty() {
-                return Err(error(io::ErrorKind::UnexpectedEof));
-            }
-            let count = available
-                .iter()
-                .position(|b| *b == b'\n')
-                .map_or(available.len(), |i| i + 1);
-            if frame.len().saturating_add(count) > MAX_FRAME + 1 {
-                return Err(error(io::ErrorKind::InvalidData));
-            }
-            let complete = available[count - 1] == b'\n';
-            frame.extend_from_slice(&available[..count]);
-            reader.consume(count);
-            if complete {
-                frame.pop();
-                if frame.len() > MAX_FRAME {
-                    return Err(error(io::ErrorKind::InvalidData));
-                }
-                return Ok(frame);
-            }
+    let mut frame = Vec::new();
+    loop {
+        let available = timeout_at(deadline, reader.fill_buf())
+            .await
+            .map_err(|_| error(io::ErrorKind::TimedOut))?
+            .map_err(|e| error(e.kind()))?;
+        if available.is_empty() {
+            return Err(error(io::ErrorKind::UnexpectedEof));
+        }
+        let count = available
+            .iter()
+            .position(|b| *b == b'\n')
+            .map_or(available.len(), |i| i + 1);
+        if frame.len().saturating_add(count) > MAX_FRAME + 1 {
+            return Err(error(io::ErrorKind::InvalidData));
+        }
+        let complete = available[count - 1] == b'\n';
+        frame.extend_from_slice(&available[..count]);
+        reader.consume(count);
+        if complete {
+            frame.pop();
             if frame.len() > MAX_FRAME {
                 return Err(error(io::ErrorKind::InvalidData));
             }
+            return Ok(frame);
         }
+        if frame.len() > MAX_FRAME {
+            return Err(error(io::ErrorKind::InvalidData));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -109,15 +107,35 @@ mod tests {
         let (mut writer, reader) = duplex(64);
         writer.write_all(br#"{"partial":true}"#).await.unwrap();
         drop(writer);
-        let result = read_frame(&mut BufReader::new(reader), Instant::now() + std::time::Duration::from_secs(1)).await;
-        assert!(matches!(result, Err(IpcError { outcome: IpcOutcome::Unknown, kind: io::ErrorKind::UnexpectedEof })));
+        let result = read_frame(
+            &mut BufReader::new(reader),
+            Instant::now() + std::time::Duration::from_secs(1),
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(IpcError {
+                outcome: IpcOutcome::Unknown,
+                kind: io::ErrorKind::UnexpectedEof
+            })
+        ));
     }
 
     #[tokio::test]
     async fn blocked_response_is_unknown_timeout() {
         let (_writer, reader) = duplex(64);
-        let result = read_frame(&mut BufReader::new(reader), Instant::now() + std::time::Duration::from_millis(30)).await;
-        assert!(matches!(result, Err(IpcError { outcome: IpcOutcome::Unknown, kind: io::ErrorKind::TimedOut })));
+        let result = read_frame(
+            &mut BufReader::new(reader),
+            Instant::now() + std::time::Duration::from_millis(30),
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(IpcError {
+                outcome: IpcOutcome::Unknown,
+                kind: io::ErrorKind::TimedOut
+            })
+        ));
     }
 
     #[tokio::test]
@@ -125,7 +143,17 @@ mod tests {
         let (mut writer, reader) = duplex(MAX_FRAME + 128);
         writer.write_all(&vec![b'x'; MAX_FRAME + 1]).await.unwrap();
         drop(writer);
-        let result = read_frame(&mut BufReader::new(reader), Instant::now() + std::time::Duration::from_secs(1)).await;
-        assert!(matches!(result, Err(IpcError { outcome: IpcOutcome::Unknown, kind: io::ErrorKind::InvalidData })));
+        let result = read_frame(
+            &mut BufReader::new(reader),
+            Instant::now() + std::time::Duration::from_secs(1),
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(IpcError {
+                outcome: IpcOutcome::Unknown,
+                kind: io::ErrorKind::InvalidData
+            })
+        ));
     }
 }
