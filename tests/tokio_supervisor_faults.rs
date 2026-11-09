@@ -301,3 +301,57 @@ async fn saturated_queue_rejects_without_dispatch_and_recovers() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn aborted_queued_request_is_skipped_without_poisoning_worker() {
+    use std::sync::Arc;
+
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        source.path(),
+        concat!(
+            "pi.registerTool({name:'pause',execute:()=>{",
+            "const end=Date.now()+450;while(Date.now()<end){};",
+            "return 'done';}});"
+        ),
+    )
+    .unwrap();
+    let worker = Arc::new(WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap());
+    let pid = worker.child_id();
+    worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+
+    let active_worker = Arc::clone(&worker);
+    let active = tokio::spawn(async move {
+        active_worker
+            .exchange(br#"{"name":"pause","arguments":{}}"#.to_vec(), deadline())
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(70)).await;
+
+    let cancelled_worker = Arc::clone(&worker);
+    let queued = tokio::spawn(async move {
+        cancelled_worker
+            .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    queued.abort();
+    assert!(queued.await.unwrap_err().is_cancelled());
+
+    assert!(active.await.unwrap().is_ok());
+    let followup = worker
+        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
+        .await
+        .unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(&followup).unwrap();
+    assert!(parsed["manifest"].is_object());
+    assert_eq!(worker.child_id(), pid);
+    Arc::try_unwrap(worker)
+        .unwrap_or_else(|_| panic!("exchange tasks must release supervisor"))
+        .shutdown()
+        .await
+        .unwrap();
+}
