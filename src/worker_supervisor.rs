@@ -529,11 +529,9 @@ mod tests {
     fn native_fallback_terminates_and_reaps_without_tokio_runtime() {
         let mut command = std::process::Command::new("sleep");
         command.arg("30");
-        // No shell or descendants: the direct process is the waitpid target.
         let child = command.spawn().expect("spawn direct child");
         let pid = child.id();
         native_kill_and_reap(pid).expect("native fallback must reap direct child");
-        // waitpid consumed the child status; a second wait must report ECHILD.
         let mut status = 0_i32;
         unsafe extern "C" {
             fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
