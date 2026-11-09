@@ -7,7 +7,7 @@ use std::{
     io,
     path::Path,
     process::{ExitStatus, Stdio},
-    sync::{Arc, Condvar, Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 use tokio::{
@@ -23,14 +23,12 @@ const OWNER_READY_TIMEOUT: Duration = Duration::from_secs(3);
 
 struct OwnerSlots {
     active: Mutex<usize>,
-    changed: Condvar,
 }
 
 fn owner_slots() -> &'static OwnerSlots {
     static SLOTS: OnceLock<OwnerSlots> = OnceLock::new();
     SLOTS.get_or_init(|| OwnerSlots {
         active: Mutex::new(0),
-        changed: Condvar::new(),
     })
 }
 
@@ -53,7 +51,6 @@ impl Drop for OwnerPermit {
         let slots = owner_slots();
         let mut active = slots.active.lock().unwrap_or_else(|e| e.into_inner());
         *active -= 1;
-        slots.changed.notify_one();
     }
 }
 
@@ -151,7 +148,9 @@ impl ProcessOwner {
                         .enable_all()
                         .build()
                     {
-                        let _ = fallback.block_on(child.wait());
+                        if let Ok(exit) = fallback.block_on(child.wait()) {
+                            let _ = finished.send(Some(exit));
+                        }
                     }
                 }
             })
@@ -484,6 +483,20 @@ mod tests {
         assert_eq!(event.as_object().unwrap().len(), 4);
         assert!(event.get("payload").is_none());
         assert!(event.get("source").is_none());
+    }
+
+    #[test]
+    fn process_owner_limit_is_bounded_and_permits_are_released() {
+        let mut permits = Vec::new();
+        for _ in 0..MAX_PROCESS_OWNERS {
+            permits.push(OwnerPermit::acquire().expect("available process owner slot"));
+        }
+        assert!(matches!(
+            OwnerPermit::acquire(),
+            Err(SupervisorError::NotStarted(io::ErrorKind::WouldBlock))
+        ));
+        drop(permits);
+        assert!(OwnerPermit::acquire().is_ok());
     }
 
     #[test]
