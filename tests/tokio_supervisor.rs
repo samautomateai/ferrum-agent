@@ -373,7 +373,10 @@ async fn timed_out_request_closes_worker_and_completes_cleanup() {
             Instant::now() + Duration::from_millis(250),
         )
         .await;
-    assert!(matches!(first, Err(SupervisorError::Unknown(io::ErrorKind::TimedOut))));
+    assert!(matches!(
+        first,
+        Err(SupervisorError::Unknown(io::ErrorKind::TimedOut))
+    ));
     let next = worker
         .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
         .await;
@@ -392,7 +395,9 @@ async fn malformed_json_closes_actor_and_reaps_before_observer_notifies() {
     let source = extension();
     let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
     let mut exited = worker.exit_observer();
-    let result = worker.exchange(b"{invalid-json}".to_vec(), deadline()).await;
+    let result = worker
+        .exchange(b"{invalid-json}".to_vec(), deadline())
+        .await;
     assert!(matches!(result, Err(SupervisorError::Unknown(_))));
     tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|done| *done))
         .await
