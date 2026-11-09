@@ -36,3 +36,12 @@ If a requirement changes, reopen the affected approval and update design, OpenSp
 | M31-R5 | M3.1 design: lifecycle cleanup | R5 | `tests/tokio_supervisor.rs` | Pending full OS/runtime teardown verification | Open |
 
 Never mark a requirement accepted solely because a code path exists.
+
+## Operational aids
+
+- [SDD review checklist](sdd-review-checklist.md)
+- [Traceability contract](sdd-traceability.md)
+- [Right-sized milestone template](sdd-milestone-template.md)
+- [M3.1 acceptance matrix](../requirements/m31-acceptance-matrix.md)
+
+These aids are proposed; no automatic approval or CI enforcement is implied.

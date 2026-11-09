@@ -11,6 +11,8 @@
 - [ ] Adopt the [lightweight BMAD-inspired requirements/design workflow](development/requirements-and-design.md) as the project-wide baseline; maintainer approval pending.
 - [ ] Keep requirement IDs, OpenSpec clauses, tests and checkpoint evidence traceable in each cohesive implementation PR.
 
+- [ ] Review [M3.1 acceptance matrix](requirements/m31-acceptance-matrix.md) and [SDD review checklist](development/sdd-review-checklist.md) with the maintainer.
+
 ## Status conventions and update protocol
 
 - `[x]` = acceptance demonstrated and evidence linked. `[ ]` = incomplete, unverified, or not yet scoped.
