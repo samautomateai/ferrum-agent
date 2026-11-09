@@ -635,19 +635,21 @@ async fn busy_worker_shutdown_is_bounded_and_cleanup_completes() {
         .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
         .await
         .unwrap();
-    let request = worker.exchange(
-        br#"{"name":"hang","arguments":{}}"#.to_vec(),
-        Instant::now() + Duration::from_millis(250),
-    );
-    let shutdown = async {
-        tokio::time::sleep(Duration::from_millis(30)).await;
-        worker.shutdown().await
-    };
-    let (request_result, shutdown_result) = tokio::join!(request, shutdown);
+    // Drive the in-flight request to completion before consuming the supervisor.
+    // A concurrent shutdown(self) would move a value still borrowed by exchange(&self).
+    let request_result = worker
+        .exchange(
+            br#"{"name":"hang","arguments":{}}"#.to_vec(),
+            Instant::now() + Duration::from_millis(250),
+        )
+        .await;
     assert!(matches!(
         request_result,
         Err(SupervisorError::Unknown(io::ErrorKind::TimedOut))
     ));
+    let shutdown_result = tokio::time::timeout(Duration::from_secs(5), worker.shutdown())
+        .await
+        .expect("shutdown must remain bounded after a hung invocation");
     assert!(
         shutdown_result.is_err(),
         "hung worker cannot acknowledge shutdown"
