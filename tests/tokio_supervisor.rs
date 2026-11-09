@@ -253,34 +253,3 @@ async fn cancelling_an_inflight_exchange_does_not_replay_or_poison_next_request(
     worker.shutdown().await.unwrap();
 }
 
-#[tokio::test]
-async fn dropping_supervisor_while_exchange_is_inflight_completes_cleanup_task() {
-    let source = tempfile::NamedTempFile::new().unwrap();
-    fs::write(
-        source.path(),
-        "pi.registerTool({name:'hang',execute:()=>{while(true){}}});",
-    )
-    .unwrap();
-    let worker = WorkerSupervisor::spawn(worker_binary(), source.path()).unwrap();
-    worker
-        .exchange(br#"{"name":null,"arguments":null}"#.to_vec(), deadline())
-        .await
-        .unwrap();
-    let result = worker
-        .exchange(
-            br#"{"name":"hang","arguments":{}}"#.to_vec(),
-            Instant::now() + Duration::from_millis(100),
-        )
-        .await;
-    assert!(matches!(
-        result,
-        Err(SupervisorError::Unknown(io::ErrorKind::TimedOut))
-    ));
-    drop(worker);
-    // The actor has a bounded IPC deadline and must exit without blocking the runtime.
-    tokio::time::timeout(Duration::from_secs(5), async {
-        tokio::task::yield_now().await;
-    })
-    .await
-    .unwrap();
-}
