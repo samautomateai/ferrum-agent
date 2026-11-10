@@ -102,6 +102,20 @@ enum CommandMessage {
     },
 }
 
+#[cfg(unix)]
+fn terminate_worker_group(pid: u32) -> io::Result<()> {
+    use std::os::raw::c_int;
+    unsafe extern "C" {
+        fn kill(pid: c_int, signal: c_int) -> c_int;
+    }
+    let pid = c_int::try_from(pid).map_err(|_| io::ErrorKind::InvalidInput)?;
+    if unsafe { kill(-pid, 9) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
 // Last-resort OS wait path when the independent Tokio runtime cannot start.
 // The process owner still holds the Child, so the PID cannot be reused before
 // this thread completes its termination and wait attempt.
@@ -115,6 +129,7 @@ fn native_kill_and_reap(pid: u32) -> io::Result<()> {
     let pid = c_int::try_from(pid).map_err(|_| io::ErrorKind::InvalidInput)?;
     // SIGKILL is 9 on the supported Unix targets.
     unsafe {
+        let _ = kill(-pid, 9);
         let _ = kill(pid, 9);
         let mut status = 0;
         if waitpid(pid, &mut status, 0) == pid {
@@ -186,6 +201,12 @@ impl ProcessOwner {
                                     }
                                 }
                             } => {
+                                #[cfg(unix)]
+                                if let Some(pid) = child.id() {
+                                    if let Err(error) = terminate_worker_group(pid) {
+                                        lifecycle_event("group_terminate_failed", Some(pid), Some(error.kind()));
+                                    }
+                                }
                                 let _ = child.start_kill();
                                 child.wait().await
                             }
@@ -257,7 +278,13 @@ impl WorkerSupervisor {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .kill_on_drop(true)
+            .kill_on_drop(true);
+        #[cfg(unix)]
+        {
+            // Establish containment before exec; process groups are not a sandbox.
+            child.process_group(0);
+        }
+        let mut child = child
             .spawn()
             .map_err(|e| SupervisorError::NotStarted(e.kind()))?;
         let stdin = child
