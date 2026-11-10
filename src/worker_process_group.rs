@@ -12,7 +12,6 @@ pub(super) fn terminate_worker_group(pid: u32) -> io::Result<()> {
     }
 }
 
-
 #[cfg(unix)]
 pub(super) fn native_kill_and_reap(pid: u32) -> io::Result<()> {
     use std::os::raw::c_int;
@@ -33,4 +32,3 @@ pub(super) fn native_kill_and_reap(pid: u32) -> io::Result<()> {
         }
     }
 }
-

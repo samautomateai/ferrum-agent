@@ -6,8 +6,6 @@ use crate::worker_lifecycle::{WorkerEvent, WorkerLifecycle};
 #[cfg(unix)]
 #[path = "worker_process_group.rs"]
 mod worker_process_group;
-#[cfg(unix)]
-use worker_process_group::{native_kill_and_reap, terminate_worker_group};
 use std::{
     io,
     path::Path,
@@ -21,6 +19,8 @@ use tokio::{
     task::JoinHandle,
     time::{timeout_at, Instant},
 };
+#[cfg(unix)]
+use worker_process_group::{native_kill_and_reap, terminate_worker_group};
 
 const COMMAND_CAPACITY: usize = 16;
 const MAX_PROCESS_OWNERS: usize = 64;
