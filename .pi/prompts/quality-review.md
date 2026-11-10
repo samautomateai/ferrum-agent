@@ -1,0 +1,1 @@
+Read AGENTS.md and docs/agentic/roles/quality.md. Run available local quality commands, inspect same-commit CI, report measured coverage and missing checks. Never claim success without evidence or change thresholds.

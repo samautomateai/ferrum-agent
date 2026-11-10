@@ -1,0 +1,1 @@
+Read AGENTS.md and docs/agentic/roles/implementer.md. Identify the approved OpenSpec and scope before any edit. If approval is missing, stop. Write failing tests first, then implement and run task quality. Never weaken gates or merge.
