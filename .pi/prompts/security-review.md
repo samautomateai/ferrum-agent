@@ -1,0 +1,1 @@
+Read AGENTS.md and docs/agentic/roles/security.md. Review the current diff in a fresh context for unsafe FFI, process containment escape, injection, permissions, supply chain and secrets. Return evidence and severity; do not edit files.
