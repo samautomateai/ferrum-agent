@@ -1,3 +1,5 @@
+use std::io;
+
 #[cfg(unix)]
 pub(super) fn terminate_worker_group(pid: u32) -> io::Result<()> {
     use std::os::raw::c_int;
