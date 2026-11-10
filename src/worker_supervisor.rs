@@ -3,6 +3,11 @@
 //! owns direct-child termination and wait/reaping. Descendants are out of scope.
 use crate::async_ipc::{FramedIpc, IpcError, IpcOutcome};
 use crate::worker_lifecycle::{WorkerEvent, WorkerLifecycle};
+#[cfg(unix)]
+#[path = "worker_process_group.rs"]
+mod worker_process_group;
+#[cfg(unix)]
+use worker_process_group::terminate_worker_group;
 use std::{
     io,
     path::Path,
@@ -100,20 +105,6 @@ enum CommandMessage {
         deadline: Instant,
         reply: oneshot::Sender<Result<(), SupervisorError>>,
     },
-}
-
-#[cfg(unix)]
-fn terminate_worker_group(pid: u32) -> io::Result<()> {
-    use std::os::raw::c_int;
-    unsafe extern "C" {
-        fn kill(pid: c_int, signal: c_int) -> c_int;
-    }
-    let pid = c_int::try_from(pid).map_err(|_| io::ErrorKind::InvalidInput)?;
-    if unsafe { kill(-pid, 9) } == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
 }
 
 // Last-resort OS wait path when the independent Tokio runtime cannot start.
