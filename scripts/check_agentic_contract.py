@@ -9,6 +9,7 @@ REQUIRED = (
     "docs/agentic/README.md",
     "openspec/specs/agentic-pi-workflow.md",
 )
+PROMPTS = ("architect", "scrutinize", "implement", "review", "security-review", "quality-review")
 POLICY_TERMS = ("OpenSpec", "task quality", "90%", "600", "120")
 REVIEW_TERMS = {
     "architect": ("ADR", "approval"),
@@ -41,6 +42,13 @@ def validate(root: Path) -> list[str]:
         for term in REVIEW_TERMS[role]:
             if term.lower() not in content.lower():
                 errors.append(f"{path} missing required boundary: {term}")
+    for prompt in PROMPTS:
+        path = f".pi/prompts/{prompt}.md"
+        file = root / path
+        if not file.is_file():
+            errors.append(f"missing Pi prompt: {path}")
+        elif "AGENTS.md" not in file.read_text(encoding="utf-8"):
+            errors.append(f"{path} must reference AGENTS.md")
     return errors
 
 
