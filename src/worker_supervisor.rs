@@ -7,7 +7,7 @@ use crate::worker_lifecycle::{WorkerEvent, WorkerLifecycle};
 #[path = "worker_process_group.rs"]
 mod worker_process_group;
 #[cfg(unix)]
-use worker_process_group::terminate_worker_group;
+use worker_process_group::{native_kill_and_reap, terminate_worker_group};
 use std::{
     io,
     path::Path,
@@ -110,27 +110,6 @@ enum CommandMessage {
 // Last-resort OS wait path when the independent Tokio runtime cannot start.
 // The process owner still holds the Child, so the PID cannot be reused before
 // this thread completes its termination and wait attempt.
-#[cfg(unix)]
-fn native_kill_and_reap(pid: u32) -> io::Result<()> {
-    use std::os::raw::c_int;
-    unsafe extern "C" {
-        fn kill(pid: c_int, signal: c_int) -> c_int;
-        fn waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
-    }
-    let pid = c_int::try_from(pid).map_err(|_| io::ErrorKind::InvalidInput)?;
-    // SIGKILL is 9 on the supported Unix targets.
-    unsafe {
-        let _ = kill(-pid, 9);
-        let _ = kill(pid, 9);
-        let mut status = 0;
-        if waitpid(pid, &mut status, 0) == pid {
-            Ok(())
-        } else {
-            Err(io::Error::last_os_error())
-        }
-    }
-}
-
 #[cfg(windows)]
 fn native_kill_and_reap(pid: u32) -> io::Result<()> {
     use std::ffi::c_void;
