@@ -241,7 +241,8 @@ pub struct WorkerSupervisor {
 impl WorkerSupervisor {
     /// Must be called from within the shared Tokio runtime.
     pub fn spawn(executable: &Path, source: &Path) -> Result<Self, SupervisorError> {
-        let mut child = Command::new(executable)
+        let mut command = Command::new(executable);
+        command
             .arg("--extension-worker")
             .arg("--worker-source")
             .arg(source)
@@ -252,9 +253,9 @@ impl WorkerSupervisor {
         #[cfg(unix)]
         {
             // Establish containment before exec; process groups are not a sandbox.
-            child.process_group(0);
+            command.process_group(0);
         }
-        let mut child = child
+        let mut child = command
             .spawn()
             .map_err(|e| SupervisorError::NotStarted(e.kind()))?;
         let stdin = child
