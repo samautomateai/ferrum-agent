@@ -10,6 +10,7 @@ use std::{
 };
 
 mod async_ipc;
+mod authorization;
 mod edit;
 mod error_contract;
 mod extensions;
@@ -95,6 +96,11 @@ struct Args {
         help = "Allow file writes and exact-match edits inside workspace"
     )]
     allow_write: bool,
+    #[arg(
+        long,
+        help = "Allow trusted extension tool execution (unsafe: not sandboxed)"
+    )]
+    allow_extension_tools: bool,
     #[arg(value_name = "PROMPT")]
     prompt: Option<String>,
 }
@@ -145,10 +151,20 @@ fn merge_tool_definitions(hosts: &[ExtensionWorker]) -> Result<Value> {
 fn dispatch_tool(
     root: &Path,
     allow_write: bool,
+    allow_extension_tools: bool,
     name: &str,
     arguments: &Value,
     hosts: &mut [ExtensionWorker],
 ) -> Result<String> {
+    let origin = if hosts
+        .iter()
+        .any(|host| host.manifest.tools.iter().any(|tool| tool == name))
+    {
+        authorization::ToolOrigin::Extension
+    } else {
+        authorization::ToolOrigin::Native
+    };
+    authorization::authorize(name, origin, allow_write, allow_extension_tools)?;
     for host in hosts.iter_mut() {
         if host.manifest.tools.iter().any(|tool| tool == name) {
             return serde_json::to_string(&host.invoke(name, arguments)?).map_err(Into::into);
@@ -250,7 +266,14 @@ fn run(args: &Args, prompt: &str) -> Result<()> {
             let result = serde_json::from_str::<Value>(raw)
                 .map_err(anyhow::Error::from)
                 .and_then(|params| {
-                    dispatch_tool(&root, args.allow_write, name, &params, &mut extension_hosts)
+                    dispatch_tool(
+                        &root,
+                        args.allow_write,
+                        args.allow_extension_tools,
+                        name,
+                        &params,
+                        &mut extension_hosts,
+                    )
                 });
             let output = match result {
                 Ok(value) => value,
@@ -282,6 +305,10 @@ fn main_with_args(args: Args) -> Result<()> {
             .as_deref()
             .context("--worker-source required")?;
         return worker::worker_entry(source);
+    }
+    // Extension source executes during registration; reject before loading any worker.
+    if !args.extensions.is_empty() && !args.allow_extension_tools {
+        bail!("extension loading denied; pass --allow-extension-tools for trusted extensions");
     }
     if args.import_json.is_some() || args.export_json.is_some() {
         let db_path = args
