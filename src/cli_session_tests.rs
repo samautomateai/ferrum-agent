@@ -99,3 +99,32 @@ mod cli_session_contracts {
         assert_eq!(history[0]["content"], "persisted");
     }
 }
+
+#[cfg(test)]
+mod extension_load_policy_regression {
+    use super::*;
+
+    #[test]
+    fn extension_source_is_rejected_before_worker_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("marker.txt");
+        let extension = dir.path().join("side_effect.js");
+        fs::write(
+            &extension,
+            format!(
+                "pi.registerTool({{name:'test_tool',execute:()=>1}}); // {}",
+                marker.display()
+            ),
+        )
+        .unwrap();
+
+        let mut args = Args::parse_from(["ferrum", "--api-key", "test"]);
+        args.extensions = vec![extension];
+        args.workspace = dir.path().to_path_buf();
+        args.prompt = Some("test".into());
+
+        let error = main_with_args(args).unwrap_err();
+        assert!(error.to_string().contains("extension loading denied"));
+        assert!(!marker.exists());
+    }
+}
