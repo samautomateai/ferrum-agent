@@ -3,6 +3,14 @@
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 
+/// Stable core events consumed by CLI, ACP, TUI and future remote transports.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AgentEvent {
+    AssistantCompleted { content: String },
+    ToolStarted { id: String, name: String },
+    ToolFinished { id: String, name: String, success: bool },
+}
+
 pub(crate) enum TurnOutcome {
     Complete(String),
     Continue,
@@ -15,7 +23,18 @@ pub(crate) fn process_turn(
     messages: &mut Vec<Value>,
     message: Value,
     mut persist: impl FnMut(&[Value]) -> Result<()>,
+    dispatch: impl FnMut(&str, &Value) -> Result<String>,
+) -> Result<TurnOutcome> {
+    process_turn_with_events(messages, message, persist, dispatch, |_| {})
+}
+
+/// Event-aware execution; callbacks are observations, never authorization decisions.
+pub(crate) fn process_turn_with_events(
+    messages: &mut Vec<Value>,
+    message: Value,
+    mut persist: impl FnMut(&[Value]) -> Result<()>,
     mut dispatch: impl FnMut(&str, &Value) -> Result<String>,
+    mut emit: impl FnMut(AgentEvent),
 ) -> Result<TurnOutcome> {
     let calls = message
         .get("tool_calls")
@@ -25,13 +44,13 @@ pub(crate) fn process_turn(
     messages.push(message.clone());
     persist(messages)?;
     if calls.is_empty() {
-        return Ok(TurnOutcome::Complete(
-            message
-                .get("content")
-                .and_then(Value::as_str)
-                .unwrap_or("(no content)")
-                .to_owned(),
-        ));
+        let content = message
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or("(no content)")
+            .to_owned();
+        emit(AgentEvent::AssistantCompleted { content: content.clone() });
+        return Ok(TurnOutcome::Complete(content));
     }
     for call in calls {
         let id = call
@@ -39,6 +58,8 @@ pub(crate) fn process_turn(
             .and_then(Value::as_str)
             .context("tool call missing id")?;
         let name = call.pointer("/function/name").and_then(Value::as_str);
+        let event_name = name.unwrap_or("<missing>").to_owned();
+        emit(AgentEvent::ToolStarted { id: id.to_owned(), name: event_name.clone() });
         let result = match name {
             Some(name) => {
                 let raw = call
@@ -51,12 +72,14 @@ pub(crate) fn process_turn(
             }
             None => Err(anyhow::anyhow!("tool call missing name")),
         };
+        let success = result.is_ok();
         let output = match result {
             Ok(value) => value,
             Err(error) => format!("ERROR: {error:#}"),
         };
         messages.push(json!({"role":"tool","tool_call_id":id,"content":output}));
         persist(messages)?;
+        emit(AgentEvent::ToolFinished { id: id.to_owned(), name: event_name, success });
     }
     Ok(TurnOutcome::Continue)
 }
@@ -64,6 +87,30 @@ pub(crate) fn process_turn(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn event_order_and_status_are_observable_after_persistence() {
+        let mut history = vec![];
+        let mut events = vec![];
+        let mut saves = 0;
+        let message = json!({"role":"assistant","tool_calls":[
+            {"id":"one","function":{"name":"read_file","arguments":"{}"}},
+            {"id":"two","function":{"name":"write_file","arguments":"{}"}}
+        ]});
+        process_turn_with_events(
+            &mut history, message,
+            |_| { saves += 1; Ok(()) },
+            |name, _| if name == "write_file" { anyhow::bail!("denied") } else { Ok("ok".into()) },
+            |event| events.push(event),
+        ).unwrap();
+        assert_eq!(saves, 3);
+        assert_eq!(events, vec![
+            AgentEvent::ToolStarted { id:"one".into(), name:"read_file".into() },
+            AgentEvent::ToolFinished { id:"one".into(), name:"read_file".into(), success:true },
+            AgentEvent::ToolStarted { id:"two".into(), name:"write_file".into() },
+            AgentEvent::ToolFinished { id:"two".into(), name:"write_file".into(), success:false },
+        ]);
+    }
 
     #[test]
     fn completion_is_persisted_without_dispatch() {
