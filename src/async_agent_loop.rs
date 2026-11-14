@@ -59,22 +59,35 @@ where
     if cancellation.is_cancelled() {
         bail!("agent cancelled before assistant turn");
     }
-    let calls = message.get("tool_calls").and_then(Value::as_array).cloned().unwrap_or_default();
+    let calls = message
+        .get("tool_calls")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     history.push(message.clone());
     persist(history).await?;
     if calls.is_empty() {
-        let content = message.get("content").and_then(Value::as_str).unwrap_or("(no content)");
+        let content = message
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or("(no content)");
         return Ok(AsyncOutcome::Complete(content.to_owned()));
     }
     for call in calls {
         if cancellation.is_cancelled() {
             bail!("agent cancelled before tool execution");
         }
-        let id = call.get("id").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("missing tool call id"))?;
+        let id = call
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("missing tool call id"))?;
         let name = call.pointer("/function/name").and_then(Value::as_str);
         let result = match name {
             Some(name) => {
-                let raw = call.pointer("/function/arguments").and_then(Value::as_str).unwrap_or("{}");
+                let raw = call
+                    .pointer("/function/arguments")
+                    .and_then(Value::as_str)
+                    .unwrap_or("{}");
                 match serde_json::from_str::<Value>(raw) {
                     Ok(args) => tokio::select! {
                         biased;
@@ -133,8 +146,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
-    fn persist<'a>(_: &'a [Value]) -> BoxFuture<'a, ()> { Box::pin(async { Ok(()) }) }
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    fn persist<'a>(_: &'a [Value]) -> BoxFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
     fn tool<'a>(_: &'a str, _: &'a Value) -> BoxFuture<'a, String> {
         Box::pin(async { Ok("ok".into()) })
     }
@@ -145,7 +163,15 @@ mod tests {
     #[tokio::test]
     async fn completion_does_not_execute_tools() {
         let mut history = vec![];
-        let outcome = process_turn(&mut history, json!({"role":"assistant","content":"done"}), &Cancellation::new(), persist, tool).await.unwrap();
+        let outcome = process_turn(
+            &mut history,
+            json!({"role":"assistant","content":"done"}),
+            &Cancellation::new(),
+            persist,
+            tool,
+        )
+        .await
+        .unwrap();
         assert!(matches!(outcome, AsyncOutcome::Complete(ref value) if value == "done"));
         assert_eq!(history.len(), 1);
     }
@@ -153,17 +179,34 @@ mod tests {
     #[tokio::test]
     async fn malformed_json_is_recorded_without_dispatch() {
         let mut history = vec![];
-        process_turn(&mut history, call("read_file", "{"), &Cancellation::new(), persist, tool).await.unwrap();
+        process_turn(
+            &mut history,
+            call("read_file", "{"),
+            &Cancellation::new(),
+            persist,
+            tool,
+        )
+        .await
+        .unwrap();
         assert_eq!(history[1]["tool_call_id"], "one");
-        assert!(history[1]["content"].as_str().unwrap().starts_with("ERROR:"));
+        assert!(history[1]["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("ERROR:"));
     }
 
     #[tokio::test]
     async fn missing_tool_name_is_recorded() {
         let mut history = vec![];
-        let message = json!({"role":"assistant","tool_calls":[{"id":"one","function":{"arguments":"{}"}}]});
-        process_turn(&mut history, message, &Cancellation::new(), persist, tool).await.unwrap();
-        assert!(history[1]["content"].as_str().unwrap().contains("missing tool name"));
+        let message =
+            json!({"role":"assistant","tool_calls":[{"id":"one","function":{"arguments":"{}"}}]});
+        process_turn(&mut history, message, &Cancellation::new(), persist, tool)
+            .await
+            .unwrap();
+        assert!(history[1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("missing tool name"));
     }
 
     #[tokio::test]
@@ -171,7 +214,15 @@ mod tests {
         let cancellation = Cancellation::new();
         cancellation.cancel();
         let mut history = vec![];
-        assert!(process_turn(&mut history, call("read_file", "{}"), &cancellation, persist, tool).await.is_err());
+        assert!(process_turn(
+            &mut history,
+            call("read_file", "{}"),
+            &cancellation,
+            persist,
+            tool
+        )
+        .await
+        .is_err());
         assert!(history.is_empty());
     }
 
@@ -181,9 +232,15 @@ mod tests {
         let signal = cancellation.clone();
         let mut history = vec![];
         let task = tokio::spawn(async move {
-            run(&mut history, 3, &signal, persist, |_| Box::pin(async {
-                std::future::pending::<Result<Value>>().await
-            }), tool).await
+            run(
+                &mut history,
+                3,
+                &signal,
+                persist,
+                |_| Box::pin(async { std::future::pending::<Result<Value>>().await }),
+                tool,
+            )
+            .await
         });
         tokio::task::yield_now().await;
         cancellation.cancel();
@@ -196,8 +253,14 @@ mod tests {
         let signal = cancellation.clone();
         let task = tokio::spawn(async move {
             let mut history = vec![];
-            process_turn(&mut history, call("read_file", "{}"), &signal, persist,
-                |_, _| Box::pin(async { std::future::pending::<Result<String>>().await })).await
+            process_turn(
+                &mut history,
+                call("read_file", "{}"),
+                &signal,
+                persist,
+                |_, _| Box::pin(async { std::future::pending::<Result<String>>().await }),
+            )
+            .await
         });
         tokio::task::yield_now().await;
         cancellation.cancel();
@@ -207,17 +270,35 @@ mod tests {
     #[tokio::test]
     async fn model_step_limit_is_enforced() {
         let mut history = vec![];
-        let result = run(&mut history, 2, &Cancellation::new(), persist,
-            |_| Box::pin(async { Ok(call("read_file", "{}")) }), tool).await;
-        assert!(result.unwrap_err().to_string().contains("maximum agent steps"));
+        let result = run(
+            &mut history,
+            2,
+            &Cancellation::new(),
+            persist,
+            |_| Box::pin(async { Ok(call("read_file", "{}")) }),
+            tool,
+        )
+        .await;
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("maximum agent steps"));
         assert_eq!(history.len(), 4);
     }
 
     #[tokio::test]
     async fn zero_steps_rejected() {
         let mut history = vec![];
-        assert!(run(&mut history, 0, &Cancellation::new(), persist,
-            |_| Box::pin(async { Ok(json!({"role":"assistant","content":"done"})) }), tool).await.is_err());
+        assert!(run(
+            &mut history,
+            0,
+            &Cancellation::new(),
+            persist,
+            |_| Box::pin(async { Ok(json!({"role":"assistant","content":"done"})) }),
+            tool
+        )
+        .await
+        .is_err());
     }
 
     #[tokio::test]
@@ -225,12 +306,17 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let seen = counter.clone();
         let mut history = vec![];
-        let result = process_turn(&mut history, call("write_file", "{}"), &Cancellation::new(),
+        let result = process_turn(
+            &mut history,
+            call("write_file", "{}"),
+            &Cancellation::new(),
             |_| Box::pin(async { bail!("disk failure") }),
             move |_, _| {
                 seen.fetch_add(1, Ordering::SeqCst);
                 Box::pin(async { Ok("written".into()) })
-            }).await;
+            },
+        )
+        .await;
         assert!(result.is_err());
         assert_eq!(counter.load(Ordering::SeqCst), 0);
     }
@@ -240,14 +326,25 @@ mod tests {
         let mut history = vec![];
         let count = Arc::new(AtomicUsize::new(0));
         let seen = count.clone();
-        let answer = run(&mut history, 3, &Cancellation::new(), persist,
+        let answer = run(
+            &mut history,
+            3,
+            &Cancellation::new(),
+            persist,
             move |_| {
                 let turn = seen.fetch_add(1, Ordering::SeqCst);
                 Box::pin(async move {
-                    if turn == 0 { Ok(call("read_file", "{}")) }
-                    else { Ok(json!({"role":"assistant","content":"finished"})) }
+                    if turn == 0 {
+                        Ok(call("read_file", "{}"))
+                    } else {
+                        Ok(json!({"role":"assistant","content":"finished"}))
+                    }
                 })
-            }, tool).await.unwrap();
+            },
+            tool,
+        )
+        .await
+        .unwrap();
         assert_eq!(answer, "finished");
         assert_eq!(history.len(), 3);
     }
