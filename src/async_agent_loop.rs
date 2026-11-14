@@ -82,6 +82,7 @@ where
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow::anyhow!("missing tool call id"))?;
         let name = call.pointer("/function/name").and_then(Value::as_str);
+        let mut interrupted = false;
         let result = match name {
             Some(name) => {
                 let raw = call
@@ -91,7 +92,10 @@ where
                 match serde_json::from_str::<Value>(raw) {
                     Ok(args) => tokio::select! {
                         biased;
-                        _ = cancellation.cancelled() => bail!("agent cancelled during tool execution"),
+                        _ = cancellation.cancelled() => {
+                            interrupted = true;
+                            Err(anyhow::anyhow!("agent cancelled during tool execution"))
+                        },
                         result = dispatch(name, &args) => result,
                     },
                     Err(error) => Err(error.into()),
@@ -105,6 +109,9 @@ where
         };
         history.push(json!({"role":"tool","tool_call_id":id,"content":output}));
         persist(history).await?;
+        if interrupted {
+            bail!("agent cancelled during tool execution");
+        }
     }
     Ok(AsyncOutcome::NeedsModel)
 }
@@ -245,6 +252,36 @@ mod tests {
         tokio::task::yield_now().await;
         cancellation.cancel();
         assert!(task.await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn cancelled_tool_has_persisted_matching_result() {
+        let cancellation = Cancellation::new();
+        let signal = cancellation.clone();
+        let task = tokio::spawn(async move {
+            let mut history = vec![];
+            let result = process_turn(
+                &mut history,
+                call("read_file", "{}"),
+                &signal,
+                persist,
+                |_, _| Box::pin(async {
+                    std::future::pending::<Result<String>>().await
+                }),
+            )
+            .await;
+            (result, history)
+        });
+        tokio::task::yield_now().await;
+        cancellation.cancel();
+        let (result, history) = task.await.unwrap();
+        assert!(result.is_err());
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[1]["tool_call_id"], "one");
+        assert!(history[1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("cancelled"));
     }
 
     #[tokio::test]
