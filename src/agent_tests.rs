@@ -386,7 +386,7 @@ mod agent_loop_regressions {
         let dir = tempfile::tempdir().unwrap();
         let mut hosts = [];
         let args = json!({"path":"protected.txt","content":"secret"});
-        assert!(dispatch_tool(dir.path(), false, "write_file", &args, &mut hosts).is_err());
+        assert!(dispatch_tool(dir.path(), false, false, "write_file", &args, &mut hosts).is_err());
         assert!(!dir.path().join("protected.txt").exists());
     }
 }
