@@ -96,7 +96,10 @@ struct Args {
         help = "Allow file writes and exact-match edits inside workspace"
     )]
     allow_write: bool,
-    #[arg(long, help = "Allow trusted extension tool execution (unsafe: not sandboxed)")]
+    #[arg(
+        long,
+        help = "Allow trusted extension tool execution (unsafe: not sandboxed)"
+    )]
     allow_extension_tools: bool,
     #[arg(value_name = "PROMPT")]
     prompt: Option<String>,
@@ -153,7 +156,10 @@ fn dispatch_tool(
     arguments: &Value,
     hosts: &mut [ExtensionWorker],
 ) -> Result<String> {
-    let origin = if hosts.iter().any(|host| host.manifest.tools.iter().any(|tool| tool == name)) {
+    let origin = if hosts
+        .iter()
+        .any(|host| host.manifest.tools.iter().any(|tool| tool == name))
+    {
         authorization::ToolOrigin::Extension
     } else {
         authorization::ToolOrigin::Native
