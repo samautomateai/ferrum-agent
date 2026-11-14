@@ -265,9 +265,7 @@ mod tests {
                 call("read_file", "{}"),
                 &signal,
                 persist,
-                |_, _| Box::pin(async {
-                    std::future::pending::<Result<String>>().await
-                }),
+                |_, _| Box::pin(async { std::future::pending::<Result<String>>().await }),
             )
             .await;
             (result, history)
