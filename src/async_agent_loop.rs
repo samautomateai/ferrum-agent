@@ -316,6 +316,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancellation_after_first_tool_skips_remaining_dispatches() {
+        let cancellation = Cancellation::new();
+        let signal = cancellation.clone();
+        let dispatched = Arc::new(AtomicUsize::new(0));
+        let observed = dispatched.clone();
+        let mut history = vec![];
+        let message = json!({"role":"assistant","tool_calls":[
+            {"id":"first","function":{"name":"read_file","arguments":"{}"}},
+            {"id":"second","function":{"name":"write_file","arguments":"{}"}},
+            {"id":"third","function":{"name":"read_file","arguments":"{}"}}
+        ]});
+        let result = process_turn(
+            &mut history,
+            message,
+            &signal,
+            persist,
+            move |_, _| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                cancellation.cancel();
+                Box::pin(async { Ok("first completed".into()) })
+            },
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(dispatched.load(Ordering::SeqCst), 1);
+        assert_eq!(history.len(), 4);
+        assert_eq!(history[1]["tool_call_id"], "first");
+        assert_eq!(history[1]["content"], "first completed");
+        assert_eq!(history[2]["tool_call_id"], "second");
+        assert_eq!(history[3]["tool_call_id"], "third");
+        for entry in &history[2..] {
+            assert!(entry["content"].as_str().unwrap().contains("cancelled"));
+        }
+    }
+
+    #[tokio::test]
     async fn cancellation_interrupts_pending_tool() {
         let cancellation = Cancellation::new();
         let signal = cancellation.clone();
