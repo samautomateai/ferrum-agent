@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+mod agent_loop;
 mod async_ipc;
 mod authorization;
 mod edit;
@@ -233,62 +234,24 @@ fn run(args: &Args, prompt: &str) -> Result<()> {
             !args.no_stream,
             &definitions,
         )?;
-        let calls = message
-            .get("tool_calls")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        messages.push(message.clone());
-        persist(args, &mut db, &messages)?;
-        if calls.is_empty() {
-            println!(
-                "{}",
-                message
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .unwrap_or("(no content)")
-            );
+        let outcome = agent_loop::process_turn(
+            &mut messages,
+            message,
+            |history| persist(args, &mut db, history),
+            |name, params| {
+                dispatch_tool(
+                    &root,
+                    args.allow_write,
+                    args.allow_extension_tools,
+                    name,
+                    params,
+                    &mut extension_hosts,
+                )
+            },
+        )?;
+        if let agent_loop::TurnOutcome::Complete(content) = outcome {
+            println!("{content}");
             return Ok(());
-        }
-        for call in calls {
-            let id = call
-                .get("id")
-                .and_then(Value::as_str)
-                .context("tool call missing id")?;
-            let name = call
-                .pointer("/function/name")
-                .and_then(Value::as_str)
-                .context("tool call missing name")?;
-            let raw = call
-                .pointer("/function/arguments")
-                .and_then(Value::as_str)
-                .unwrap_or("{}");
-            let result = serde_json::from_str::<Value>(raw)
-                .map_err(anyhow::Error::from)
-                .and_then(|params| {
-                    dispatch_tool(
-                        &root,
-                        args.allow_write,
-                        args.allow_extension_tools,
-                        name,
-                        &params,
-                        &mut extension_hosts,
-                    )
-                });
-            let output = match result {
-                Ok(value) => value,
-                Err(error) => format!("ERROR: {error:#}"),
-            };
-            eprintln!(
-                "tool {name}: {}",
-                if output.starts_with("ERROR:") {
-                    "failed"
-                } else {
-                    "ok"
-                }
-            );
-            messages.push(json!({"role":"tool","tool_call_id":id,"content":output}));
-            persist(args, &mut db, &messages)?;
         }
     }
     bail!("max agent steps reached; session persisted for inspection")
