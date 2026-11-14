@@ -23,7 +23,7 @@ cargo run -- --session .ferrum-session.json --workspace . 'Find the entry point 
 cargo run -- --allow-write --workspace . 'Update the README'
 ```
 
-Default operation is read-only. There is no shell execution in M0.
+Default operation is read-only. There is no general shell execution in M0.\n\nTrusted extension tools require explicit `--allow-extension-tools` opt-in, independently\nof `--allow-write`. This only enables extension dispatch: it does **not** sandbox\nthe extension worker or prevent extension JavaScript from accessing host resources.\nDo not load untrusted extensions.
 
 ## Known limitations
 - SSE Chat Completions streaming is enabled by default; use `--no-stream` for incompatible gateways.
