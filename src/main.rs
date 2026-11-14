@@ -10,6 +10,7 @@ use std::{
 };
 
 mod agent_loop;
+mod async_agent_loop;
 mod async_ipc;
 mod authorization;
 mod edit;
