@@ -41,7 +41,7 @@ pub(super) fn atomic_replace(path: &Path, data: &[u8]) -> Result<()> {
     tmp.as_file().sync_all()?;
     // On Windows, replacing an existing file may require a platform-specific operation.
     tmp.persist(path)
-        .map_err(|e| anyhow!("atomic replace failed: {}", e.error))?;
+        .map_err(|e| anyhow::anyhow!("atomic replace failed: {}", e.error))?;
     Ok(())
 }
 
@@ -76,7 +76,7 @@ pub(super) fn execute(
     let get = |key: &str| -> Result<&str> {
         args.get(key)
             .and_then(Value::as_str)
-            .ok_or_else(|| anyhow!("missing {key}"))
+            .ok_or_else(|| anyhow::anyhow!("missing {key}"))
     };
     match name {
         "read_file" => {
