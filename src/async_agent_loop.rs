@@ -333,9 +333,13 @@ mod tests {
             &signal,
             persist,
             move |_, _| {
-                observed.fetch_add(1, Ordering::SeqCst);
-                cancellation.cancel();
-                Box::pin(async { Ok("first completed".into()) })
+                let signal = cancellation.clone();
+                let observed = observed.clone();
+                Box::pin(async move {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    signal.cancel();
+                    Ok("first completed".into())
+                })
             },
         )
         .await;
