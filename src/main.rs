@@ -306,6 +306,10 @@ fn main_with_args(args: Args) -> Result<()> {
             .context("--worker-source required")?;
         return worker::worker_entry(source);
     }
+    // Extension source executes during registration; reject before loading any worker.
+    if !args.extensions.is_empty() && !args.allow_extension_tools {
+        bail!("extension loading denied; pass --allow-extension-tools for trusted extensions");
+    }
     if args.import_json.is_some() || args.export_json.is_some() {
         let db_path = args
             .session_db
