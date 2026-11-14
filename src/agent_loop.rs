@@ -28,6 +28,7 @@ pub(crate) enum TurnOutcome {
 /// Append a provider message, execute its tool calls, and durably record each outcome.
 /// A malformed tool payload is returned to the model as an error rather than
 /// silently dropping the tool_call_id (which would corrupt the conversation).
+#[cfg(test)]
 pub(crate) fn process_turn(
     messages: &mut Vec<Value>,
     message: Value,
