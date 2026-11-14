@@ -148,23 +148,44 @@ mod full_agent_loop_contracts {
     }
 
     #[test]
-    fn missing_tool_id_and_name_fail_without_fabricating_results() {
-        for call in [
-            json!({"type":"function","function":{"name":"read_file","arguments":"{}"}}),
-            json!({"id":"one","type":"function","function":{"arguments":"{}"}}),
-        ] {
-            let dir = tempfile::tempdir().unwrap();
-            let (endpoint, handle) = server(vec![
-                json!({"role":"assistant","content":null,"tool_calls":[call]}),
-            ]);
-            let mut config = args(dir.path(), &endpoint);
-            config.session_db = Some(dir.path().join("state.db"));
-            assert!(run(&config, "inspect").is_err());
-            handle.join().unwrap();
-            let db = open_store(config.session_db.as_ref().unwrap()).unwrap();
-            let messages = load_sqlite(&db, "default").unwrap();
-            assert_eq!(messages.len(), 3);
-        }
+    fn missing_tool_id_fails_without_fabricating_result() {
+        let dir = tempfile::tempdir().unwrap();
+        let (endpoint, handle) = server(vec![
+            json!({"role":"assistant","content":null,"tool_calls":[
+                {"type":"function","function":{"name":"read_file","arguments":"{}"}}
+            ]}),
+        ]);
+        let mut config = args(dir.path(), &endpoint);
+        config.session_db = Some(dir.path().join("state.db"));
+        assert!(run(&config, "inspect").is_err());
+        handle.join().unwrap();
+        let db = open_store(config.session_db.as_ref().unwrap()).unwrap();
+        let messages = load_sqlite(&db, "default").unwrap();
+        assert_eq!(messages.len(), 3);
+    }
+
+    #[test]
+    fn missing_tool_name_produces_error_result_and_recovers() {
+        let dir = tempfile::tempdir().unwrap();
+        let (endpoint, handle) = server(vec![
+            json!({"role":"assistant","content":null,"tool_calls":[
+                {"id":"one","type":"function","function":{"arguments":"{}"}}
+            ]}),
+            json!({"role":"assistant","content":"recovered"}),
+        ]);
+        let mut config = args(dir.path(), &endpoint);
+        config.session_db = Some(dir.path().join("state.db"));
+        run(&config, "inspect").unwrap();
+        handle.join().unwrap();
+        let db = open_store(config.session_db.as_ref().unwrap()).unwrap();
+        let messages = load_sqlite(&db, "default").unwrap();
+        assert_eq!(messages.len(), 5);
+        assert_eq!(messages[3]["tool_call_id"], "one");
+        assert!(messages[3]["content"]
+            .as_str()
+            .unwrap()
+            .contains("missing name"));
+        assert_eq!(messages[4]["content"], "recovered");
     }
 
     #[test]
