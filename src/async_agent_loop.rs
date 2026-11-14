@@ -73,9 +73,10 @@ where
             .unwrap_or("(no content)");
         return Ok(AsyncOutcome::Complete(content.to_owned()));
     }
+    let mut was_cancelled = false;
     for call in calls {
         if cancellation.is_cancelled() {
-            bail!("agent cancelled before tool execution");
+            was_cancelled = true;
         }
         let id = call
             .get("id")
@@ -84,6 +85,7 @@ where
         let name = call.pointer("/function/name").and_then(Value::as_str);
         let mut interrupted = false;
         let result = match name {
+            _ if was_cancelled => Err(anyhow::anyhow!("agent cancelled before tool execution")),
             Some(name) => {
                 let raw = call
                     .pointer("/function/arguments")
@@ -110,8 +112,11 @@ where
         history.push(json!({"role":"tool","tool_call_id":id,"content":output}));
         persist(history).await?;
         if interrupted {
-            bail!("agent cancelled during tool execution");
+            was_cancelled = true;
         }
+    }
+    if was_cancelled {
+        bail!("agent cancelled; outstanding tool results persisted");
     }
     Ok(AsyncOutcome::NeedsModel)
 }
@@ -280,6 +285,40 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("cancelled"));
+    }
+
+    #[tokio::test]
+    async fn cancellation_records_results_for_all_remaining_calls() {
+        let cancellation = Cancellation::new();
+        let signal = cancellation.clone();
+        let task = tokio::spawn(async move {
+            let mut history = vec![];
+            let message = json!({"role":"assistant","tool_calls":[
+                {"id":"first","function":{"name":"read_file","arguments":"{}"}},
+                {"id":"second","function":{"name":"write_file","arguments":"{}"}}
+            ]});
+            let result = process_turn(
+                &mut history,
+                message,
+                &signal,
+                persist,
+                |_, _| Box::pin(async {
+                    std::future::pending::<Result<String>>().await
+                }),
+            )
+            .await;
+            (result, history)
+        });
+        tokio::task::yield_now().await;
+        cancellation.cancel();
+        let (result, history) = task.await.unwrap();
+        assert!(result.is_err());
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[1]["tool_call_id"], "first");
+        assert_eq!(history[2]["tool_call_id"], "second");
+        for message in &history[1..] {
+            assert!(message["content"].as_str().unwrap().contains("cancelled"));
+        }
     }
 
     #[tokio::test]
