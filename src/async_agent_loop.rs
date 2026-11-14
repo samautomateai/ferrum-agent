@@ -327,21 +327,15 @@ mod tests {
             {"id":"second","function":{"name":"write_file","arguments":"{}"}},
             {"id":"third","function":{"name":"read_file","arguments":"{}"}}
         ]});
-        let result = process_turn(
-            &mut history,
-            message,
-            &signal,
-            persist,
-            move |_, _| {
-                let signal = cancellation.clone();
-                let observed = observed.clone();
-                Box::pin(async move {
-                    observed.fetch_add(1, Ordering::SeqCst);
-                    signal.cancel();
-                    Ok("first completed".into())
-                })
-            },
-        )
+        let result = process_turn(&mut history, message, &signal, persist, move |_, _| {
+            let signal = cancellation.clone();
+            let observed = observed.clone();
+            Box::pin(async move {
+                observed.fetch_add(1, Ordering::SeqCst);
+                signal.cancel();
+                Ok("first completed".into())
+            })
+        })
         .await;
         assert!(result.is_err());
         assert_eq!(dispatched.load(Ordering::SeqCst), 1);
