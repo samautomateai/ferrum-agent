@@ -31,7 +31,7 @@ pub(crate) enum TurnOutcome {
 pub(crate) fn process_turn(
     messages: &mut Vec<Value>,
     message: Value,
-    mut persist: impl FnMut(&[Value]) -> Result<()>,
+    persist: impl FnMut(&[Value]) -> Result<()>,
     dispatch: impl FnMut(&str, &Value) -> Result<String>,
 ) -> Result<TurnOutcome> {
     process_turn_with_events(messages, message, persist, dispatch, |_| {})
