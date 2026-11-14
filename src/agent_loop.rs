@@ -6,9 +6,18 @@ use serde_json::{json, Value};
 /// Stable core events consumed by CLI, ACP, TUI and future remote transports.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AgentEvent {
-    AssistantCompleted { content: String },
-    ToolStarted { id: String, name: String },
-    ToolFinished { id: String, name: String, success: bool },
+    AssistantCompleted {
+        content: String,
+    },
+    ToolStarted {
+        id: String,
+        name: String,
+    },
+    ToolFinished {
+        id: String,
+        name: String,
+        success: bool,
+    },
 }
 
 pub(crate) enum TurnOutcome {
@@ -49,7 +58,9 @@ pub(crate) fn process_turn_with_events(
             .and_then(Value::as_str)
             .unwrap_or("(no content)")
             .to_owned();
-        emit(AgentEvent::AssistantCompleted { content: content.clone() });
+        emit(AgentEvent::AssistantCompleted {
+            content: content.clone(),
+        });
         return Ok(TurnOutcome::Complete(content));
     }
     for call in calls {
@@ -59,7 +70,10 @@ pub(crate) fn process_turn_with_events(
             .context("tool call missing id")?;
         let name = call.pointer("/function/name").and_then(Value::as_str);
         let event_name = name.unwrap_or("<missing>").to_owned();
-        emit(AgentEvent::ToolStarted { id: id.to_owned(), name: event_name.clone() });
+        emit(AgentEvent::ToolStarted {
+            id: id.to_owned(),
+            name: event_name.clone(),
+        });
         let result = match name {
             Some(name) => {
                 let raw = call
@@ -79,7 +93,11 @@ pub(crate) fn process_turn_with_events(
         };
         messages.push(json!({"role":"tool","tool_call_id":id,"content":output}));
         persist(messages)?;
-        emit(AgentEvent::ToolFinished { id: id.to_owned(), name: event_name, success });
+        emit(AgentEvent::ToolFinished {
+            id: id.to_owned(),
+            name: event_name,
+            success,
+        });
     }
     Ok(TurnOutcome::Continue)
 }
@@ -98,18 +116,46 @@ mod tests {
             {"id":"two","function":{"name":"write_file","arguments":"{}"}}
         ]});
         process_turn_with_events(
-            &mut history, message,
-            |_| { saves += 1; Ok(()) },
-            |name, _| if name == "write_file" { anyhow::bail!("denied") } else { Ok("ok".into()) },
+            &mut history,
+            message,
+            |_| {
+                saves += 1;
+                Ok(())
+            },
+            |name, _| {
+                if name == "write_file" {
+                    anyhow::bail!("denied")
+                } else {
+                    Ok("ok".into())
+                }
+            },
             |event| events.push(event),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(saves, 3);
-        assert_eq!(events, vec![
-            AgentEvent::ToolStarted { id:"one".into(), name:"read_file".into() },
-            AgentEvent::ToolFinished { id:"one".into(), name:"read_file".into(), success:true },
-            AgentEvent::ToolStarted { id:"two".into(), name:"write_file".into() },
-            AgentEvent::ToolFinished { id:"two".into(), name:"write_file".into(), success:false },
-        ]);
+        assert_eq!(
+            events,
+            vec![
+                AgentEvent::ToolStarted {
+                    id: "one".into(),
+                    name: "read_file".into()
+                },
+                AgentEvent::ToolFinished {
+                    id: "one".into(),
+                    name: "read_file".into(),
+                    success: true
+                },
+                AgentEvent::ToolStarted {
+                    id: "two".into(),
+                    name: "write_file".into()
+                },
+                AgentEvent::ToolFinished {
+                    id: "two".into(),
+                    name: "write_file".into(),
+                    success: false
+                },
+            ]
+        );
     }
 
     #[test]
