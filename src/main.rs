@@ -253,7 +253,10 @@ fn run(args: &Args, prompt: &str) -> Result<()> {
                     eprintln!("tool {name} ({id}): started");
                 }
                 agent_loop::AgentEvent::ToolFinished { id, name, success } => {
-                    eprintln!("tool {name} ({id}): {}", if success { "ok" } else { "failed" });
+                    eprintln!(
+                        "tool {name} ({id}): {}",
+                        if success { "ok" } else { "failed" }
+                    );
                 }
                 agent_loop::AgentEvent::AssistantCompleted { .. } => {}
             },
