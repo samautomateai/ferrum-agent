@@ -1,0 +1,1 @@
+Read AGENTS.md and docs/agentic/roles/reviewer.md. Independently review the current branch diff against main and approved OpenSpec. Produce file/line findings, missing tests, risk and disposition. Do not edit files.

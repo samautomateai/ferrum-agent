@@ -1,0 +1,1 @@
+Read AGENTS.md and docs/agentic/roles/architect.md. Analyze the current change's OpenSpec requirements, architecture and ADRs. Produce a design and acceptance checklist. Do not edit production code. Stop for maintainer approval.

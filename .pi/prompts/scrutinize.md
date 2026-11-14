@@ -1,0 +1,1 @@
+Read AGENTS.md and docs/agentic/roles/scrutinizer.md. Independently challenge the current OpenSpec and ADR, especially platform assumptions, security, cleanup and failure behavior. Produce severity-ranked findings with evidence; do not edit files.
