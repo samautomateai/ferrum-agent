@@ -122,7 +122,7 @@ where
             _ = cancellation.cancelled() => bail!("agent cancelled during model request"),
             result = model(history) => result?,
         };
-        match process_turn(history, response, cancellation, |h| persist(h), |n, a| dispatch(n, a)).await? {
+        match process_turn(history, response, cancellation, &mut persist, &mut dispatch).await? {
             AsyncOutcome::Complete(content) => return Ok(content),
             AsyncOutcome::NeedsModel => {}
         }
