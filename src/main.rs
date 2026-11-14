@@ -234,7 +234,7 @@ fn run(args: &Args, prompt: &str) -> Result<()> {
             !args.no_stream,
             &definitions,
         )?;
-        let outcome = agent_loop::process_turn(
+        let outcome = agent_loop::process_turn_with_events(
             &mut messages,
             message,
             |history| persist(args, &mut db, history),
@@ -247,6 +247,15 @@ fn run(args: &Args, prompt: &str) -> Result<()> {
                     params,
                     &mut extension_hosts,
                 )
+            },
+            |event| match event {
+                agent_loop::AgentEvent::ToolStarted { id, name } => {
+                    eprintln!("tool {name} ({id}): started");
+                }
+                agent_loop::AgentEvent::ToolFinished { id, name, success } => {
+                    eprintln!("tool {name} ({id}): {}", if success { "ok" } else { "failed" });
+                }
+                agent_loop::AgentEvent::AssistantCompleted { .. } => {}
             },
         )?;
         if let agent_loop::TurnOutcome::Complete(content) = outcome {
