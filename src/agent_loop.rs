@@ -26,15 +26,25 @@ pub(crate) fn process_turn(
     persist(messages)?;
     if calls.is_empty() {
         return Ok(TurnOutcome::Complete(
-            message.get("content").and_then(Value::as_str).unwrap_or("(no content)").to_owned(),
+            message
+                .get("content")
+                .and_then(Value::as_str)
+                .unwrap_or("(no content)")
+                .to_owned(),
         ));
     }
     for call in calls {
-        let id = call.get("id").and_then(Value::as_str).context("tool call missing id")?;
+        let id = call
+            .get("id")
+            .and_then(Value::as_str)
+            .context("tool call missing id")?;
         let name = call.pointer("/function/name").and_then(Value::as_str);
         let result = match name {
             Some(name) => {
-                let raw = call.pointer("/function/arguments").and_then(Value::as_str).unwrap_or("{}");
+                let raw = call
+                    .pointer("/function/arguments")
+                    .and_then(Value::as_str)
+                    .unwrap_or("{}");
                 serde_json::from_str::<Value>(raw)
                     .map_err(anyhow::Error::from)
                     .and_then(|params| dispatch(name, &params))
@@ -59,8 +69,16 @@ mod tests {
     fn completion_is_persisted_without_dispatch() {
         let mut history = vec![];
         let mut saves = 0;
-        let outcome = process_turn(&mut history, json!({"role":"assistant","content":"done"}),
-            |_| { saves += 1; Ok(()) }, |_, _| panic!("unexpected dispatch")).unwrap();
+        let outcome = process_turn(
+            &mut history,
+            json!({"role":"assistant","content":"done"}),
+            |_| {
+                saves += 1;
+                Ok(())
+            },
+            |_, _| panic!("unexpected dispatch"),
+        )
+        .unwrap();
         assert!(matches!(outcome, TurnOutcome::Complete(ref s) if s == "done"));
         assert_eq!(saves, 1);
         assert_eq!(history.len(), 1);
@@ -75,9 +93,19 @@ mod tests {
             {"id":"a","function":{"name":"read_file","arguments":"{}"}},
             {"id":"b","function":{"name":"grep","arguments":"{}"}}
         ]});
-        let outcome = process_turn(&mut history, message,
-            |m| { sizes.push(m.len()); Ok(()) },
-            |name, _| { seen.push(name.to_owned()); Ok(name.to_owned()) }).unwrap();
+        let outcome = process_turn(
+            &mut history,
+            message,
+            |m| {
+                sizes.push(m.len());
+                Ok(())
+            },
+            |name, _| {
+                seen.push(name.to_owned());
+                Ok(name.to_owned())
+            },
+        )
+        .unwrap();
         assert!(matches!(outcome, TurnOutcome::Continue));
         assert_eq!(seen, ["read_file", "grep"]);
         assert_eq!(sizes, [1, 2, 3]);
@@ -90,10 +118,18 @@ mod tests {
         let message = json!({"role":"assistant","tool_calls":[
             {"id":"bad","function":{"name":"read_file","arguments":"{"}}
         ]});
-        process_turn(&mut history, message, |_| Ok(()),
-            |_, _| panic!("malformed JSON must not execute")).unwrap();
+        process_turn(
+            &mut history,
+            message,
+            |_| Ok(()),
+            |_, _| panic!("malformed JSON must not execute"),
+        )
+        .unwrap();
         assert_eq!(history[1]["tool_call_id"], "bad");
-        assert!(history[1]["content"].as_str().unwrap().starts_with("ERROR:"));
+        assert!(history[1]["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("ERROR:"));
     }
 
     #[test]
@@ -102,9 +138,12 @@ mod tests {
         let message = json!({"role":"assistant","tool_calls":[
             {"id":"x","function":{"name":"write_file","arguments":"{}"}}
         ]});
-        let error = process_turn(&mut history, message,
+        let error = process_turn(
+            &mut history,
+            message,
             |_| anyhow::bail!("storage unavailable"),
-            |_, _| panic!("tool must not execute before assistant message is durable"));
+            |_, _| panic!("tool must not execute before assistant message is durable"),
+        );
         assert!(error.is_err());
     }
 }
