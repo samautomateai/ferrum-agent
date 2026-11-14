@@ -297,15 +297,9 @@ mod tests {
                 {"id":"first","function":{"name":"read_file","arguments":"{}"}},
                 {"id":"second","function":{"name":"write_file","arguments":"{}"}}
             ]});
-            let result = process_turn(
-                &mut history,
-                message,
-                &signal,
-                persist,
-                |_, _| Box::pin(async {
-                    std::future::pending::<Result<String>>().await
-                }),
-            )
+            let result = process_turn(&mut history, message, &signal, persist, |_, _| {
+                Box::pin(async { std::future::pending::<Result<String>>().await })
+            })
             .await;
             (result, history)
         });
