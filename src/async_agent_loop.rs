@@ -469,10 +469,7 @@ mod tests {
             tool,
         )
         .await;
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("max agent steps"));
+        assert!(result.unwrap_err().to_string().contains("max agent steps"));
         assert_eq!(history.len(), 4);
     }
 
