@@ -380,8 +380,14 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("cancelled"));
-        assert!(history[1]["content"].as_str().unwrap().contains("outcome unknown"));
-        assert!(history[1]["content"].as_str().unwrap().contains("do not retry"));
+        assert!(history[1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("outcome unknown"));
+        assert!(history[1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("do not retry"));
     }
 
     #[tokio::test]
