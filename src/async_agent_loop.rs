@@ -306,7 +306,7 @@ mod tests {
         assert!(history[1]["content"]
             .as_str()
             .unwrap()
-            .contains("missing tool name"));
+            .contains("missing name"));
     }
 
     #[tokio::test]
@@ -472,7 +472,7 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("maximum agent steps"));
+            .contains("max agent steps"));
         assert_eq!(history.len(), 4);
     }
 
