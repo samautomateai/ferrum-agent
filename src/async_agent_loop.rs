@@ -65,7 +65,10 @@ where
     if message.get("role").and_then(Value::as_str) != Some("assistant") {
         bail!("model response must have assistant role");
     }
-    if message.get("tool_calls").is_some_and(|calls| !calls.is_array() && !calls.is_null()) {
+    if message
+        .get("tool_calls")
+        .is_some_and(|calls| !calls.is_array() && !calls.is_null())
+    {
         bail!("assistant tool_calls must be an array");
     }
     let calls = message
@@ -203,7 +206,8 @@ mod tests {
             &Cancellation::new(),
             persist,
             tool,
-        ).await;
+        )
+        .await;
         assert!(result.unwrap_err().to_string().contains("assistant role"));
         assert!(history.is_empty());
     }
@@ -217,7 +221,8 @@ mod tests {
             &Cancellation::new(),
             persist,
             tool,
-        ).await;
+        )
+        .await;
         assert!(result.unwrap_err().to_string().contains("must be an array"));
         assert!(history.is_empty());
     }
