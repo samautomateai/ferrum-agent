@@ -15,6 +15,7 @@ pub(crate) fn recover_pending_tools(history: &mut Vec<Value>) -> Result<usize> {
                 if !pending.is_empty() {
                     bail!("unresolved tool calls before subsequent assistant message");
                 }
+                seen.clear();
                 if let Some(calls) = message.get("tool_calls").and_then(Value::as_array) {
                     for call in calls {
                         let id = call.get("id").and_then(Value::as_str)
@@ -40,9 +41,6 @@ pub(crate) fn recover_pending_tools(history: &mut Vec<Value>) -> Result<usize> {
                 bail!("unresolved tool calls before subsequent conversation message");
             }
             _ => {}
-        }
-        if message.get("role").and_then(Value::as_str) == Some("assistant") && pending.is_empty() {
-            seen.clear();
         }
     }
     let count = pending.len();
