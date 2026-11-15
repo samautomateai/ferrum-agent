@@ -161,7 +161,10 @@ mod full_agent_loop_contracts {
         handle.join().unwrap();
         let db = open_store(config.session_db.as_ref().unwrap()).unwrap();
         let messages = load_sqlite(&db, "default").unwrap();
-        assert_eq!(messages.len(), 3);
+        // Invalid assistant batches are rejected before persistence, so the
+        // saved session retains only the system prompt and user request.
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1]["content"], "inspect");
     }
 
     #[test]
