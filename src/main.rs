@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
@@ -9,6 +9,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(test)]
+mod agent_loop;
+mod async_agent_loop;
 mod async_ipc;
 mod authorization;
 mod edit;
@@ -185,12 +188,11 @@ fn run(args: &Args, prompt: &str) -> Result<()> {
         .api_key
         .as_deref()
         .context("OPENAI_API_KEY is required")?;
-    let url = format!("{}/chat/completions", args.base_url.trim_end_matches('/'));
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(180))
-        .build()?;
     if args.session_db.is_some() && args.session.is_some() {
         bail!("choose --session-db or --session, not both");
+    }
+    if args.max_steps == 0 {
+        bail!("max_steps must be greater than zero");
     }
     let mut db = args
         .session_db
@@ -213,85 +215,94 @@ fn run(args: &Args, prompt: &str) -> Result<()> {
     } else {
         initial_messages(&root)
     };
-    if args.max_steps == 0 {
-        bail!("max_steps must be greater than zero");
-    }
-    let mut extension_hosts = load_extensions(
+    let extension_hosts = load_extensions(
         &args.extensions,
         Duration::from_secs(args.extension_timeout),
     )?;
     let definitions = merge_tool_definitions(&extension_hosts)?;
     messages.push(json!({"role":"user","content":prompt}));
     persist(args, &mut db, &messages)?;
-    for _ in 0..args.max_steps {
-        let message = request_message(
-            &client,
-            &url,
-            key,
-            &args.model,
-            &messages,
-            !args.no_stream,
-            &definitions,
-        )?;
-        let calls = message
-            .get("tool_calls")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        messages.push(message.clone());
-        persist(args, &mut db, &messages)?;
-        if calls.is_empty() {
-            println!(
-                "{}",
-                message
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .unwrap_or("(no content)")
-            );
-            return Ok(());
-        }
-        for call in calls {
-            let id = call
-                .get("id")
-                .and_then(Value::as_str)
-                .context("tool call missing id")?;
-            let name = call
-                .pointer("/function/name")
-                .and_then(Value::as_str)
-                .context("tool call missing name")?;
-            let raw = call
-                .pointer("/function/arguments")
-                .and_then(Value::as_str)
-                .unwrap_or("{}");
-            let result = serde_json::from_str::<Value>(raw)
-                .map_err(anyhow::Error::from)
-                .and_then(|params| {
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(180))
+        .build()?;
+    let url = format!("{}/chat/completions", args.base_url.trim_end_matches('/'));
+    let model = args.model.clone();
+    let key = key.to_owned();
+    let stream = !args.no_stream;
+    let root = std::sync::Arc::new(root);
+    let hosts = std::sync::Arc::new(std::sync::Mutex::new(extension_hosts));
+    let db = std::sync::Arc::new(std::sync::Mutex::new(db));
+    let session_id = args.session_id.clone();
+    let session_path = args.session.clone();
+    let allow_write = args.allow_write;
+    let allow_extensions = args.allow_extension_tools;
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let cancellation = async_agent_loop::Cancellation::new();
+    let output = runtime.block_on(async_agent_loop::run(
+        &mut messages,
+        args.max_steps,
+        &cancellation,
+        {
+            let db = db.clone();
+            move |history| {
+                let result = (|| -> Result<()> {
+                    let mut guard = db
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("session lock poisoned"))?;
+                    if let Some(conn) = guard.as_mut() {
+                        save_sqlite(conn, &session_id, history)?;
+                    }
+                    if let Some(path) = &session_path {
+                        save_session(path, history)?;
+                    }
+                    Ok(())
+                })();
+                Box::pin(async move { result })
+            }
+        },
+        move |history| {
+            let client = client.clone();
+            let url = url.clone();
+            let key = key.clone();
+            let model = model.clone();
+            let definitions = definitions.clone();
+            let messages = history.to_vec();
+            Box::pin(async move {
+                tokio::task::spawn_blocking(move || {
+                    request_message(&client, &url, &key, &model, &messages, stream, &definitions)
+                })
+                .await?
+            })
+        },
+        move |name, params| {
+            let name = name.to_owned();
+            let params = params.clone();
+            let root = root.clone();
+            let hosts = hosts.clone();
+            Box::pin(async move {
+                tokio::task::spawn_blocking(move || {
+                    let mut guard = hosts
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("extension lock poisoned"))?;
                     dispatch_tool(
                         &root,
-                        args.allow_write,
-                        args.allow_extension_tools,
-                        name,
+                        allow_write,
+                        allow_extensions,
+                        &name,
                         &params,
-                        &mut extension_hosts,
+                        &mut guard,
                     )
-                });
-            let output = match result {
-                Ok(value) => value,
-                Err(error) => format!("ERROR: {error:#}"),
-            };
-            eprintln!(
-                "tool {name}: {}",
-                if output.starts_with("ERROR:") {
-                    "failed"
-                } else {
-                    "ok"
-                }
-            );
-            messages.push(json!({"role":"tool","tool_call_id":id,"content":output}));
-            persist(args, &mut db, &messages)?;
-        }
-    }
-    bail!("max agent steps reached; session persisted for inspection")
+                })
+                .await?
+            })
+        },
+    ))?;
+    println!("{output}");
+    Ok(())
 }
 
 fn main() -> Result<()> {
