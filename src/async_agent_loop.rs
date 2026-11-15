@@ -60,6 +60,14 @@ where
     if cancellation.is_cancelled() {
         bail!("agent cancelled before assistant turn");
     }
+    // Never persist a provider payload as an assistant turn unless its envelope
+    // is valid. A malformed envelope would poison subsequent model requests.
+    if message.get("role").and_then(Value::as_str) != Some("assistant") {
+        bail!("model response must have assistant role");
+    }
+    if message.get("tool_calls").is_some_and(|calls| !calls.is_array() && !calls.is_null()) {
+        bail!("assistant tool_calls must be an array");
+    }
     let calls = message
         .get("tool_calls")
         .and_then(Value::as_array)
@@ -184,6 +192,34 @@ mod tests {
     }
     fn call(name: &str, arguments: &str) -> Value {
         json!({"role":"assistant","tool_calls":[{"id":"one","function":{"name":name,"arguments":arguments}}]})
+    }
+
+    #[tokio::test]
+    async fn non_assistant_response_is_rejected_without_persistence() {
+        let mut history = vec![];
+        let result = process_turn(
+            &mut history,
+            json!({"role":"user","content":"untrusted"}),
+            &Cancellation::new(),
+            persist,
+            tool,
+        ).await;
+        assert!(result.unwrap_err().to_string().contains("assistant role"));
+        assert!(history.is_empty());
+    }
+
+    #[tokio::test]
+    async fn malformed_tool_calls_envelope_is_rejected_without_persistence() {
+        let mut history = vec![];
+        let result = process_turn(
+            &mut history,
+            json!({"role":"assistant","tool_calls":{"id":"bad"}}),
+            &Cancellation::new(),
+            persist,
+            tool,
+        ).await;
+        assert!(result.unwrap_err().to_string().contains("must be an array"));
+        assert!(history.is_empty());
     }
 
     #[tokio::test]
