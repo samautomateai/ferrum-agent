@@ -6,7 +6,11 @@ use tokio::{process::Command, time::timeout};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ProcessOutcome {
-    Exited { code: Option<i32>, stdout: Vec<u8>, stderr: Vec<u8> },
+    Exited {
+        code: Option<i32>,
+        stdout: Vec<u8>,
+        stderr: Vec<u8>,
+    },
     TimedOut,
     Cancelled,
 }
@@ -67,7 +71,9 @@ mod tests {
             Path::new("."),
             Duration::from_secs(1),
             &cancellation,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
         assert_eq!(result, ProcessOutcome::Cancelled);
     }
 
@@ -79,7 +85,8 @@ mod tests {
             Path::new("."),
             Duration::from_secs(1),
             &Cancellation::new(),
-        ).await;
+        )
+        .await;
         assert!(result.is_err());
     }
 
@@ -92,7 +99,9 @@ mod tests {
             Path::new("."),
             Duration::from_millis(20),
             &Cancellation::new(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
         assert_eq!(result, ProcessOutcome::TimedOut);
     }
 
@@ -105,7 +114,11 @@ mod tests {
             Path::new("."),
             Duration::from_secs(2),
             &Cancellation::new(),
-        ).await.unwrap();
-        assert!(matches!(result, ProcessOutcome::Exited { code: Some(0), stdout, .. } if stdout == b"hello"));
+        )
+        .await
+        .unwrap();
+        assert!(
+            matches!(result, ProcessOutcome::Exited { code: Some(0), stdout, .. } if stdout == b"hello")
+        );
     }
 }

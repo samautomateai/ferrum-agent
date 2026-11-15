@@ -23,9 +23,9 @@ mod session_recovery;
 mod sessions;
 mod stream;
 
-mod supervisor_runtime;
 #[cfg(test)]
 mod supervised_process;
+mod supervisor_runtime;
 mod tools;
 mod worker;
 mod worker_lifecycle;
