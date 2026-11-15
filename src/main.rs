@@ -248,6 +248,14 @@ fn run(args: &Args, prompt: &str) -> Result<()> {
         .enable_all()
         .build()?;
     let cancellation = async_agent_loop::Cancellation::new();
+    // Ctrl+C requests a cooperative stop. Blocking model/tool adapters may
+    // continue running until their own timeout; they must not be replayed.
+    let signal = cancellation.clone();
+    let interrupt = runtime.spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            signal.cancel();
+        }
+    });
     let output = runtime.block_on(async_agent_loop::run(
         &mut messages,
         args.max_steps,
@@ -306,7 +314,9 @@ fn run(args: &Args, prompt: &str) -> Result<()> {
                 .await?
             })
         },
-    ))?;
+    ));
+    interrupt.abort();
+    let output = output?;
     println!("{output}");
     Ok(())
 }
