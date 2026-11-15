@@ -192,10 +192,11 @@ mod tests {
             {"id":"valid","function":{"name":"read_file","arguments":"{}"}},
             {"function":{"name":"read_file","arguments":"{}"}}
         ]});
-        let result = process_turn(
-            &mut history, message, &Cancellation::new(), persist, tool,
-        ).await;
-        assert!(result.unwrap_err().to_string().contains("missing tool call id"));
+        let result = process_turn(&mut history, message, &Cancellation::new(), persist, tool).await;
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing tool call id"));
         assert!(history.is_empty());
     }
 
@@ -206,10 +207,11 @@ mod tests {
             {"id":"same","function":{"name":"read_file","arguments":"{}"}},
             {"id":"same","function":{"name":"read_file","arguments":"{}"}}
         ]});
-        let result = process_turn(
-            &mut history, message, &Cancellation::new(), persist, tool,
-        ).await;
-        assert!(result.unwrap_err().to_string().contains("duplicate tool call id"));
+        let result = process_turn(&mut history, message, &Cancellation::new(), persist, tool).await;
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate tool call id"));
         assert!(history.is_empty());
     }
 
