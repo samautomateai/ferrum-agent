@@ -1,4 +1,4 @@
-//! Bounded child-process lifecycle. A cancelled command is killed and reaped.
+//! Bounded child-process lifecycle with best-effort direct-child termination.
 //! Only commands explicitly authorized by a caller should be passed here.
 use anyhow::{Context, Result};
 use std::{ffi::OsStr, path::Path, time::Duration};
@@ -11,7 +11,7 @@ pub(crate) enum ProcessOutcome {
     Cancelled,
 }
 
-/// Spawn a direct child with piped output, then terminate and reap on timeout
+/// Spawn a direct child with piped output, then request termination on timeout
 /// or cancellation. This does not terminate grandchildren/process groups.
 pub(crate) async fn run_supervised(
     executable: &OsStr,
@@ -24,12 +24,17 @@ pub(crate) async fn run_supervised(
         return Ok(ProcessOutcome::Cancelled);
     }
     let mut command = Command::new(executable);
-    command.args(args).current_dir(directory).kill_on_drop(true);
+    command
+        .args(args)
+        .current_dir(directory)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
     let child = command
         .spawn()
         .with_context(|| format!("cannot start supervised process {executable:?}"))?;
     // wait_with_output consumes the child. kill_on_drop ensures cancellation
-    // closes the direct child even when this future is dropped.
+    // requests termination of the direct child when this future is dropped.
     let wait = child.wait_with_output();
     tokio::select! {
         biased;
