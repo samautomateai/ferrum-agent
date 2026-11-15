@@ -180,18 +180,32 @@ fn dispatch_tool(
 }
 
 fn run(args: &Args, prompt: &str) -> Result<()> {
-    let root = args.workspace.canonicalize().context("workspace not found")?;
-    let key = args.api_key.as_deref().context("OPENAI_API_KEY is required")?;
+    let root = args
+        .workspace
+        .canonicalize()
+        .context("workspace not found")?;
+    let key = args
+        .api_key
+        .as_deref()
+        .context("OPENAI_API_KEY is required")?;
     if args.session_db.is_some() && args.session.is_some() {
         bail!("choose --session-db or --session, not both");
     }
     if args.max_steps == 0 {
         bail!("max_steps must be greater than zero");
     }
-    let mut db = args.session_db.as_ref().map(|path| open_store(path)).transpose()?;
+    let mut db = args
+        .session_db
+        .as_ref()
+        .map(|path| open_store(path))
+        .transpose()?;
     let mut messages: Vec<Value> = if let Some(conn) = &db {
         let saved = load_sqlite(conn, &args.session_id)?;
-        if saved.is_empty() { initial_messages(&root) } else { saved }
+        if saved.is_empty() {
+            initial_messages(&root)
+        } else {
+            saved
+        }
     } else if let Some(path) = &args.session {
         if path.exists() {
             serde_json::from_slice(&fs::read(path)?).context("invalid session JSON")?
@@ -236,7 +250,9 @@ fn run(args: &Args, prompt: &str) -> Result<()> {
             let db = db.clone();
             move |history| {
                 let result = (|| -> Result<()> {
-                    let mut guard = db.lock().map_err(|_| anyhow::anyhow!("session lock poisoned"))?;
+                    let mut guard = db
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("session lock poisoned"))?;
                     if let Some(conn) = guard.as_mut() {
                         save_sqlite(conn, &session_id, history)?;
                     }
@@ -258,7 +274,8 @@ fn run(args: &Args, prompt: &str) -> Result<()> {
             Box::pin(async move {
                 tokio::task::spawn_blocking(move || {
                     request_message(&client, &url, &key, &model, &messages, stream, &definitions)
-                }).await?
+                })
+                .await?
             })
         },
         move |name, params| {
@@ -268,10 +285,19 @@ fn run(args: &Args, prompt: &str) -> Result<()> {
             let hosts = hosts.clone();
             Box::pin(async move {
                 tokio::task::spawn_blocking(move || {
-                    let mut guard = hosts.lock()
+                    let mut guard = hosts
+                        .lock()
                         .map_err(|_| anyhow::anyhow!("extension lock poisoned"))?;
-                    dispatch_tool(&root, allow_write, allow_extensions, &name, &params, &mut guard)
-                }).await?
+                    dispatch_tool(
+                        &root,
+                        allow_write,
+                        allow_extensions,
+                        &name,
+                        &params,
+                        &mut guard,
+                    )
+                })
+                .await?
             })
         },
     ))?;
