@@ -24,6 +24,7 @@ mod sessions;
 mod stream;
 
 mod supervisor_runtime;
+#[cfg(test)]
 mod supervised_process;
 mod tools;
 mod worker;
