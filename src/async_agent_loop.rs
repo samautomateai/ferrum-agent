@@ -133,7 +133,11 @@ where
         // A cancelled blocking adapter may still be executing. Do not claim
         // that its side effects were rolled back or that it was terminated.
         let output = if interrupted {
-            "ERROR: agent cancelled during tool execution; outcome unknown, do not retry automatically".to_owned()
+            concat!(
+                "ERROR: agent cancelled during tool execution; ",
+                "outcome unknown, do not retry automatically"
+            )
+            .to_owned()
         } else {
             match result {
                 Ok(value) => value,
