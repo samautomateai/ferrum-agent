@@ -9,8 +9,6 @@ pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send
 
 #[derive(Clone)]
 pub(crate) struct Cancellation {
-    // The CLI cancellation signal is not wired yet; tests exercise the sender.
-    #[cfg_attr(not(test), allow(dead_code))]
     sender: watch::Sender<bool>,
     receiver: watch::Receiver<bool>,
 }
@@ -21,7 +19,6 @@ impl Cancellation {
         Self { sender, receiver }
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn cancel(&self) {
         self.sender.send_replace(true);
     }
@@ -133,9 +130,19 @@ where
             }
             None => Err(anyhow::anyhow!("missing name")),
         };
-        let output = match result {
-            Ok(value) => value,
-            Err(error) => format!("ERROR: {error:#}"),
+        // A cancelled blocking adapter may still be executing. Do not claim
+        // that its side effects were rolled back or that it was terminated.
+        let output = if interrupted {
+            concat!(
+                "ERROR: agent cancelled during tool execution; ",
+                "outcome unknown, do not retry automatically"
+            )
+            .to_owned()
+        } else {
+            match result {
+                Ok(value) => value,
+                Err(error) => format!("ERROR: {error:#}"),
+            }
         };
         history.push(json!({"role":"tool","tool_call_id":id,"content":output}));
         persist(history).await?;
@@ -373,6 +380,14 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("cancelled"));
+        assert!(history[1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("outcome unknown"));
+        assert!(history[1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("do not retry"));
     }
 
     #[tokio::test]
