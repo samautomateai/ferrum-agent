@@ -23,6 +23,8 @@ mod session_recovery;
 mod sessions;
 mod stream;
 
+#[cfg(test)]
+mod supervised_process;
 mod supervisor_runtime;
 mod tools;
 mod worker;
