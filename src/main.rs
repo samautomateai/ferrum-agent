@@ -19,6 +19,7 @@ mod error_contract;
 mod extensions;
 mod git_tools;
 mod search;
+mod session_recovery;
 mod sessions;
 mod stream;
 
@@ -215,6 +216,11 @@ fn run(args: &Args, prompt: &str) -> Result<()> {
     } else {
         initial_messages(&root)
     };
+    // A previous process may have stopped after persisting an assistant tool
+    // batch but before persisting every result. Never repeat those side effects.
+    if session_recovery::recover_pending_tools(&mut messages)? > 0 {
+        persist(args, &mut db, &messages)?;
+    }
     let extension_hosts = load_extensions(
         &args.extensions,
         Duration::from_secs(args.extension_timeout),
