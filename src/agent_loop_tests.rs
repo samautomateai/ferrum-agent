@@ -216,14 +216,19 @@ mod full_agent_loop_contracts {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("state.db");
         let mut db = open_store(&db_path).unwrap();
-        save_sqlite(&mut db, "default", &[
-            json!({"role":"system","content":"prior"}),
-            json!({"role":"assistant","tool_calls":[
-                tool_call("one", "read_file", "{}"),
-                tool_call("two", "write_file", "{}")
-            ]}),
-            json!({"role":"tool","tool_call_id":"one","content":"completed"}),
-        ]).unwrap();
+        save_sqlite(
+            &mut db,
+            "default",
+            &[
+                json!({"role":"system","content":"prior"}),
+                json!({"role":"assistant","tool_calls":[
+                    tool_call("one", "read_file", "{}"),
+                    tool_call("two", "write_file", "{}")
+                ]}),
+                json!({"role":"tool","tool_call_id":"one","content":"completed"}),
+            ],
+        )
+        .unwrap();
         drop(db);
         let (endpoint, handle) = server(vec![json!({"role":"assistant","content":"recovered"})]);
         let mut config = args(dir.path(), &endpoint);
@@ -234,7 +239,10 @@ mod full_agent_loop_contracts {
         let messages = load_sqlite(&db, "default").unwrap();
         assert_eq!(messages.len(), 6);
         assert_eq!(messages[3]["tool_call_id"], "two");
-        assert!(messages[3]["content"].as_str().unwrap().contains("not retried"));
+        assert!(messages[3]["content"]
+            .as_str()
+            .unwrap()
+            .contains("not retried"));
         assert_eq!(messages[4]["content"], "continue");
         assert_eq!(messages[5]["content"], "recovered");
     }

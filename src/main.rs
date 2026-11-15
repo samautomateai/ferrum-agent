@@ -19,8 +19,8 @@ mod error_contract;
 mod extensions;
 mod git_tools;
 mod search;
-mod sessions;
 mod session_recovery;
+mod sessions;
 mod stream;
 
 mod supervisor_runtime;

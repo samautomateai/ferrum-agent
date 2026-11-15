@@ -18,7 +18,9 @@ pub(crate) fn recover_pending_tools(history: &mut Vec<Value>) -> Result<usize> {
                 seen.clear();
                 if let Some(calls) = message.get("tool_calls").and_then(Value::as_array) {
                     for call in calls {
-                        let id = call.get("id").and_then(Value::as_str)
+                        let id = call
+                            .get("id")
+                            .and_then(Value::as_str)
                             .filter(|id| !id.is_empty())
                             .ok_or_else(|| anyhow::anyhow!("invalid persisted tool call id"))?;
                         if !seen.insert(id.to_owned()) {
@@ -29,7 +31,9 @@ pub(crate) fn recover_pending_tools(history: &mut Vec<Value>) -> Result<usize> {
                 }
             }
             Some("tool") => {
-                let id = message.get("tool_call_id").and_then(Value::as_str)
+                let id = message
+                    .get("tool_call_id")
+                    .and_then(Value::as_str)
                     .ok_or_else(|| anyhow::anyhow!("persisted tool result missing call id"))?;
                 if let Some(position) = pending.iter().position(|value| value == id) {
                     pending.remove(position);
@@ -72,7 +76,10 @@ mod tests {
         assert_eq!(recover_pending_tools(&mut history).unwrap(), 2);
         assert_eq!(history[3]["tool_call_id"], "b");
         assert_eq!(history[4]["tool_call_id"], "c");
-        assert!(history[3]["content"].as_str().unwrap().contains("not retried"));
+        assert!(history[3]["content"]
+            .as_str()
+            .unwrap()
+            .contains("not retried"));
         assert_eq!(recover_pending_tools(&mut history).unwrap(), 0);
     }
 
