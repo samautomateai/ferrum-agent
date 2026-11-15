@@ -9,6 +9,8 @@ pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send
 
 #[derive(Clone)]
 pub(crate) struct Cancellation {
+    // The CLI cancellation signal is not wired yet; tests exercise the sender.
+    #[cfg_attr(not(test), allow(dead_code))]
     sender: watch::Sender<bool>,
     receiver: watch::Receiver<bool>,
 }
@@ -19,6 +21,7 @@ impl Cancellation {
         Self { sender, receiver }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn cancel(&self) {
         self.sender.send_replace(true);
     }
