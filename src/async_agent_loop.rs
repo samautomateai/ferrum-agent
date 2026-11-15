@@ -40,6 +40,7 @@ impl Cancellation {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum AsyncOutcome {
     Complete(String),
     NeedsModel,
