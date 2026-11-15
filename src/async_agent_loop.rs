@@ -64,6 +64,19 @@ where
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    // Validate the entire batch before persisting the assistant message.
+    // Otherwise a malformed later call can strand earlier tool IDs in history.
+    let mut seen_ids = std::collections::HashSet::new();
+    for call in &calls {
+        let id = call
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("missing tool call id"))?;
+        if !seen_ids.insert(id) {
+            bail!("duplicate tool call id: {id}");
+        }
+    }
     history.push(message.clone());
     persist(history).await?;
     if calls.is_empty() {
@@ -170,6 +183,34 @@ mod tests {
     }
     fn call(name: &str, arguments: &str) -> Value {
         json!({"role":"assistant","tool_calls":[{"id":"one","function":{"name":name,"arguments":arguments}}]})
+    }
+
+    #[tokio::test]
+    async fn invalid_later_call_does_not_persist_partial_assistant_turn() {
+        let mut history = vec![];
+        let message = json!({"role":"assistant","tool_calls":[
+            {"id":"valid","function":{"name":"read_file","arguments":"{}"}},
+            {"function":{"name":"read_file","arguments":"{}"}}
+        ]});
+        let result = process_turn(
+            &mut history, message, &Cancellation::new(), persist, tool,
+        ).await;
+        assert!(result.unwrap_err().to_string().contains("missing tool call id"));
+        assert!(history.is_empty());
+    }
+
+    #[tokio::test]
+    async fn duplicate_call_ids_rejected_before_persistence() {
+        let mut history = vec![];
+        let message = json!({"role":"assistant","tool_calls":[
+            {"id":"same","function":{"name":"read_file","arguments":"{}"}},
+            {"id":"same","function":{"name":"read_file","arguments":"{}"}}
+        ]});
+        let result = process_turn(
+            &mut history, message, &Cancellation::new(), persist, tool,
+        ).await;
+        assert!(result.unwrap_err().to_string().contains("duplicate tool call id"));
+        assert!(history.is_empty());
     }
 
     #[tokio::test]
