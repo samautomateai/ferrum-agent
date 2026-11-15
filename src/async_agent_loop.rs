@@ -131,7 +131,7 @@ where
                     Err(error) => Err(error.into()),
                 }
             }
-            None => Err(anyhow::anyhow!("missing tool name")),
+            None => Err(anyhow::anyhow!("missing name")),
         };
         let output = match result {
             Ok(value) => value,
@@ -180,7 +180,7 @@ where
             AsyncOutcome::NeedsModel => {}
         }
     }
-    bail!("maximum agent steps reached")
+    bail!("max agent steps reached; session persisted for inspection")
 }
 
 #[cfg(test)]
