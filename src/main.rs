@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+#[cfg(test)]
 mod agent_loop;
 mod async_agent_loop;
 mod async_ipc;
